@@ -71,13 +71,60 @@ type Job struct {
 	ID         string `json:"id"`
 	Origin     string `json:"origin"`
 	RefID      string `json:"ref_id"`
-	Target     string `json:"target"` // frente | cozinha
+	Target     string `json:"target"` // chave do setor: frente | cozinha | <uuid da praça>
 	Title      string `json:"title"`
 	Copies     int    `json:"copies"`
 	Paper      int    `json:"paper"`
 	PayloadB64 string `json:"payload_b64"`
 	CreatedAt  string `json:"created_at"`
 	Attempts   int    `json:"attempts"`
+	// v2 (o servidor v1 não manda).
+	SectorName string `json:"sector_name,omitempty"`
+	Papel      string `json:"papel,omitempty"`
+	Origem     string `json:"origem,omitempty"`
+	// Reserva: o servidor já desviou de setor e pôs o nome no topo do papel.
+	Reserva bool `json:"reserva,omitempty"`
+}
+
+// Setor da loja em GET /printer-agent/config.
+type Setor struct {
+	Key  string `json:"key"`
+	Nome string `json:"nome"`
+	Tipo string `json:"tipo"`
+}
+
+// Vinculo de um setor neste computador (bindings do config).
+type Vinculo struct {
+	Impressora *string `json:"impressora"`
+	Reserva    *string `json:"reserva"`
+	Largura    int     `json:"largura,omitempty"`
+	Vias       int     `json:"vias,omitempty"`
+}
+
+// ConfigAgente é a resposta de GET /printer-agent/config. Setores/Bindings
+// nil = servidor v1 (não mexe nos setores locais).
+type ConfigAgente struct {
+	Setores        []Setor            `json:"setores"`
+	Bindings       map[string]Vinculo `json:"bindings"`
+	FrontPrinter   *string            `json:"front_printer"`
+	KitchenPrinter *string            `json:"kitchen_printer"`
+}
+
+// SetorStatus vai em Status.Setores; ponteiro nil no mapa = `null` = apaga.
+type SetorStatus struct {
+	Impressora *string `json:"impressora"`
+	Reserva    *string `json:"reserva"`
+}
+
+// Caps que este programa entende (v2).
+var Caps = []string{"setores", "reserva", "procurar"}
+
+// AckInfo é o corpo do ack v2.
+type AckInfo struct {
+	Status  string `json:"status"`            // impresso | falhou
+	Error   string `json:"error,omitempty"`   // erro (na reserva: o da principal)
+	Via     string `json:"via,omitempty"`     // principal | reserva
+	Printer string `json:"printer,omitempty"` // onde saiu
 }
 
 // Hello é o primeiro evento do stream.
@@ -89,7 +136,7 @@ type Hello struct {
 
 // Evento do stream SSE.
 type Evento struct {
-	Tipo  string // hello | job | revoked | ping
+	Tipo  string // hello | job | revoked | config | ping
 	Job   *Job
 	Hello *Hello
 }
@@ -102,6 +149,9 @@ type Status struct {
 	OS             string   `json:"os,omitempty"`
 	Version        string   `json:"version,omitempty"`
 	LastError      *string  `json:"last_error,omitempty"`
+	// v2: vínculos que mudaram (parcial; valor nil = apaga) e o que entende.
+	Setores map[string]*SetorStatus `json:"setores,omitempty"`
+	Caps    []string                `json:"caps,omitempty"`
 }
 
 // Me é a resposta de GET /printer-agent/me.
@@ -216,12 +266,23 @@ func (c *Client) EnviarStatus(ctx context.Context, s Status) error {
 	return decode(res, nil)
 }
 
+// Config busca setores e vínculos deste computador.
+func (c *Client) Config(ctx context.Context) (ConfigAgente, error) {
+	var out ConfigAgente
+	res, err := c.req(ctx, http.MethodGet, "/api/entregas/printer-agent/config", nil, true)
+	if err != nil {
+		return out, err
+	}
+	return out, decode(res, &out)
+}
+
 // Ack fecha o papel: status "impresso" ou "falhou".
 func (c *Client) Ack(ctx context.Context, jobID, status, erro string) error {
-	body := map[string]any{"status": status}
-	if erro != "" {
-		body["error"] = erro
-	}
+	return c.AckCom(ctx, jobID, AckInfo{Status: status, Error: erro})
+}
+
+// AckCom fecha o papel dizendo por onde saiu (principal/reserva).
+func (c *Client) AckCom(ctx context.Context, jobID string, body AckInfo) error {
 	res, err := c.req(ctx, http.MethodPost, "/api/entregas/printer-agent/jobs/"+jobID+"/ack", body, true)
 	if err != nil {
 		return err
@@ -321,6 +382,9 @@ func parseEvento(tipo, data string) (Evento, error) {
 		return Evento{Tipo: "job", Job: &j}, nil
 	case "revoked":
 		return Evento{Tipo: "revoked"}, nil
+	case "config":
+		// "Busque GET /printer-agent/config de novo" (o corpo não importa).
+		return Evento{Tipo: "config"}, nil
 	}
 	return Evento{}, fmt.Errorf("evento desconhecido %q", tipo)
 }

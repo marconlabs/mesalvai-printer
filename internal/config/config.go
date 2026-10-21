@@ -25,16 +25,135 @@ type Config struct {
 	// Chave do computador (mpk_…). Vazia = ainda não vinculado.
 	Chave string `json:"chave,omitempty"`
 	// Loja e computador, só pra mostrar na tela.
-	LojaNome       string `json:"loja_nome,omitempty"`
-	LojaID         string `json:"loja_id,omitempty"`
-	AgenteID       string `json:"agente_id,omitempty"`
-	AgenteNome     string `json:"agente_nome,omitempty"`
-	Frente         string `json:"frente,omitempty"`
-	Cozinha        string `json:"cozinha,omitempty"`
-	AutoStart      bool   `json:"auto_start"`
-	AutoUpdate     bool   `json:"auto_update"`
-	PortaUI        int    `json:"porta_ui,omitempty"`
-	AbrirAoIniciar bool   `json:"abrir_ao_iniciar"`
+	LojaNome   string `json:"loja_nome,omitempty"`
+	LojaID     string `json:"loja_id,omitempty"`
+	AgenteID   string `json:"agente_id,omitempty"`
+	AgenteNome string `json:"agente_nome,omitempty"`
+	// Frente/Cozinha: campos da v1, mantidos em espelho de
+	// Setores["frente"]/Setores["cozinha"] (config.json da v1 abre igual e
+	// o status continua mandando front_printer/kitchen_printer).
+	Frente  string `json:"frente,omitempty"`
+	Cozinha string `json:"cozinha,omitempty"`
+	// Setores (v2): chave do setor → impressora principal e reserva.
+	Setores map[string]SetorLocal `json:"setores,omitempty"`
+	// SetoresLista: cópia dos setores da loja (GET /printer-agent/config)
+	// pra janela funcionar sem rede.
+	SetoresLista   []SetorInfo `json:"setores_lista,omitempty"`
+	AutoStart      bool        `json:"auto_start"`
+	AutoUpdate     bool        `json:"auto_update"`
+	PortaUI        int         `json:"porta_ui,omitempty"`
+	AbrirAoIniciar bool        `json:"abrir_ao_iniciar"`
+}
+
+// SetorLocal é o vínculo de um setor neste computador.
+type SetorLocal struct {
+	Impressora string `json:"impressora,omitempty"`
+	Reserva    string `json:"reserva,omitempty"`
+}
+
+// SetorInfo é um setor da loja (nome e tipo vêm do servidor).
+type SetorInfo struct {
+	Key  string `json:"key"`
+	Nome string `json:"nome"`
+	Tipo string `json:"tipo,omitempty"` // frente | cozinha | praca
+}
+
+// SetoresPadrao: os dois setores que toda loja tem (v1).
+func SetoresPadrao() []SetorInfo {
+	return []SetorInfo{{Key: "frente", Nome: "Caixa/Frente", Tipo: "frente"}, {Key: "cozinha", Nome: "Cozinha", Tipo: "cozinha"}}
+}
+
+// Lista devolve os setores conhecidos (cache do servidor ou o padrão), sempre
+// com frente e cozinha e com os setores vinculados que não estão na lista.
+func (c Config) Lista() []SetorInfo {
+	l := append([]SetorInfo{}, c.SetoresLista...)
+	tem := map[string]bool{}
+	for _, s := range l {
+		tem[s.Key] = true
+	}
+	for _, p := range SetoresPadrao() {
+		if !tem[p.Key] {
+			l = append(l, p)
+			tem[p.Key] = true
+		}
+	}
+	for k := range c.Setores {
+		if !tem[k] {
+			l = append(l, SetorInfo{Key: k, Nome: k, Tipo: "praca"})
+			tem[k] = true
+		}
+	}
+	// frente e cozinha primeiro, o resto na ordem que veio.
+	out := make([]SetorInfo, 0, len(l))
+	for _, k := range []string{"frente", "cozinha"} {
+		for _, s := range l {
+			if s.Key == k {
+				out = append(out, s)
+			}
+		}
+	}
+	for _, s := range l {
+		if s.Key != "frente" && s.Key != "cozinha" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// NomeDoSetor: nome conhecido do setor (ou a própria chave).
+func (c Config) NomeDoSetor(key string) string {
+	for _, s := range c.Lista() {
+		if s.Key == key && s.Nome != "" {
+			return s.Nome
+		}
+	}
+	return key
+}
+
+// Setor devolve o vínculo do setor (vazio se não houver).
+func (c Config) Setor(key string) SetorLocal {
+	return c.Setores[key]
+}
+
+// migrar leva a config da v1 (frente/cozinha) pros setores e mantém o
+// espelho. `antes` é a config antes da mudança (nil = abriu do disco):
+// mexeram no campo antigo → vale o antigo; senão vale o setor.
+func migrar(antes *Config, c *Config) {
+	if c.Setores == nil {
+		c.Setores = map[string]SetorLocal{}
+	}
+	for _, x := range []struct {
+		key   string
+		campo *string
+		velho string
+	}{{"frente", &c.Frente, campoDe(antes, "frente")}, {"cozinha", &c.Cozinha, campoDe(antes, "cozinha")}} {
+		s := c.Setores[x.key]
+		if antes == nil {
+			// Abriu do disco: config v1 (sem setor) herda o campo antigo.
+			if s.Impressora == "" && *x.campo != "" {
+				s.Impressora = *x.campo
+			}
+		} else if *x.campo != x.velho {
+			s.Impressora = *x.campo
+		}
+		*x.campo = s.Impressora
+		c.Setores[x.key] = s
+	}
+	for k, s := range c.Setores {
+		if s.Impressora == "" && s.Reserva == "" {
+			delete(c.Setores, k)
+		}
+	}
+}
+
+func campoDe(c *Config, key string) string {
+	if c == nil {
+		return ""
+	}
+	if key == "frente" {
+		return c.Frente
+	}
+	return c.Cozinha
 }
 
 // Padrao é a configuração de fábrica.
@@ -89,6 +208,7 @@ func Abrir() (*Store, error) {
 	if c.API == "" {
 		c.API = Padrao().API
 	}
+	migrar(nil, &c)
 	s.c = c
 	return s, nil
 }
@@ -97,14 +217,29 @@ func Abrir() (*Store, error) {
 func (s *Store) Get() Config {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.c
+	c := s.c
+	c.Setores = make(map[string]SetorLocal, len(s.c.Setores))
+	for k, v := range s.c.Setores {
+		c.Setores[k] = v
+	}
+	c.SetoresLista = append([]SetorInfo(nil), s.c.SetoresLista...)
+	return c
 }
 
 // Update altera e grava.
 func (s *Store) Update(f func(*Config)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f(&s.c)
+	antes := s.c
+	antes.Setores = nil
+	c := s.c
+	c.Setores = make(map[string]SetorLocal, len(s.c.Setores))
+	for k, v := range s.c.Setores {
+		c.Setores[k] = v
+	}
+	f(&c)
+	migrar(&antes, &c)
+	s.c = c
 	return s.salvar()
 }
 

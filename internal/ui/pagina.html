@@ -6,7 +6,7 @@
 <title>Mesalvaí Printer</title>
 <style>
   :root { --bg:#f7f7f3; --card:#fff; --ink:#111; --muted:#666; --line:#e4e4de; --cta:#7aff00; --ok:#006636; --warn:#b45309; --bad:#b91c1c; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1b1b1b; --ink:#f3f3f3; --muted:#aaa; --line:#2c2c2c; --ok:#7aff00; } }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1b1b1b; --ink:#f3f3f3; --muted:#aaa; --line:#2c2c2c; --ok:#7aff00; --bad:#f87171; } }
   * { box-sizing:border-box } body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink) }
   main { max-width:640px; margin:0 auto; padding:20px 16px 48px }
   h1 { font-size:20px; margin:0 0 4px } .sub { color:var(--muted); margin:0 0 16px }
@@ -27,6 +27,14 @@
   .chk { display:flex; align-items:center; gap:10px; min-height:44px }
   .chk input { width:20px; height:20px; min-height:0 }
   .hide { display:none }
+  .setor { border-top:1px solid var(--line); padding:12px 0 4px }
+  .setor:first-of-type { border-top:0; padding-top:0 }
+  .setor-topo { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap }
+  .setor-nome { font-weight:700; font-size:16px; overflow-wrap:anywhere }
+  .grade { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 10px }
+  @media (max-width:480px) { .grade { grid-template-columns:minmax(0,1fr) } }
+  .setor button { width:100%; margin-top:10px }
+  .procurar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:12px }
 </style>
 </head>
 <body>
@@ -49,19 +57,17 @@
   </section>
 
   <section class="card hide" id="impressoras">
-    <h2>Impressoras</h2>
-    <label for="frente">Frente (balcão): comanda do pedido e etiqueta da caixa</label>
-    <select id="frente"></select>
-    <label for="cozinha">Cozinha: papel de preparo (opcional — sem ela, sai na da frente)</label>
-    <select id="cozinha"><option value="">— não tenho —</option></select>
-    <label for="rede">Impressora de rede (opcional): digite <code>tcp://IP</code> e escolha na lista</label>
-    <input id="rede" placeholder="tcp://192.168.0.50" inputmode="url">
-    <div class="row">
-      <button class="cta" id="salvar">Salvar impressoras</button>
-      <button id="teste-frente">Imprimir teste (frente)</button>
-      <button id="teste-cozinha">Teste (cozinha)</button>
+    <h2>Setores</h2>
+    <p class="dica">Cada setor da loja imprime numa impressora. A <b>reserva</b> (opcional) recebe o papel quando a principal falha, com o nome do setor grande no topo. Setor sem impressora sai na da frente, também com o nome no topo. Muda na hora, sem botão de salvar.</p>
+    <div id="setores"></div>
+    <div class="procurar">
+      <button id="procurar">Procurar impressoras</button>
+      <span class="dica" id="procurar-msg">Acha impressoras de rede (porta 9100) neste Wi-Fi/cabo.</span>
     </div>
-    <p class="ok hide" id="salvo">Salvo. O painel já mostra as impressoras deste computador.</p>
+    <label for="rede">Ou digite a impressora de rede: <code>tcp://IP</code></label>
+    <input id="rede" placeholder="tcp://192.168.0.50" inputmode="url" autocomplete="off">
+    <p class="ok hide" id="salvo" role="status">Salvo. O painel já mostra.</p>
+    <p class="erro hide" id="setor-erro" role="alert"></p>
   </section>
 
   <section class="card">
@@ -79,15 +85,46 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const post = (p, b) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b ?? {}) }).then(async (r) => { if (!r.ok) throw new Error(await r.text()); });
-let estado = null, editando = false;
+let estado = null, manuais = [], assinatura = '';
+const DICA = { frente: 'Comanda, conta e o que não tiver setor próprio.', cozinha: 'Sem impressora: sai na da frente.' };
+function rotulo(i) { return i.rotulo ? `${i.rotulo} (${i.nome})` : i.nome; }
 function opcoes(sel, lista, atual, vazio) {
-  const antes = sel.value;
+  if (document.activeElement === sel) return; // não mexe enquanto a pessoa escolhe
+  const itens = [...lista];
+  for (const m of manuais) if (!itens.some((i) => i.nome === m)) itens.push({ nome: m });
+  if (atual && !itens.some((i) => i.nome === atual)) itens.unshift({ nome: atual });
+  const chave = JSON.stringify([vazio, itens, atual]);
+  if (sel.dataset.k === chave) return;
+  sel.dataset.k = chave;
   sel.innerHTML = '';
-  if (vazio) sel.append(new Option(vazio, ''));
-  const nomes = lista.map((i) => i.nome);
-  if (atual && !nomes.includes(atual)) nomes.unshift(atual);
-  for (const n of nomes) sel.append(new Option(n, n));
-  sel.value = editando ? antes : (atual ?? '');
+  sel.append(new Option(vazio, ''));
+  for (const i of itens) sel.append(new Option(rotulo(i), i.nome));
+  sel.value = atual || '';
+}
+function aviso(ok, msg) {
+  $('salvo').classList.toggle('hide', !ok); $('setor-erro').classList.toggle('hide', ok || !msg);
+  if (ok) $('salvo').textContent = msg || 'Salvo. O painel já mostra.';
+  if (ok) { clearTimeout(aviso.t); aviso.t = setTimeout(() => $('salvo').classList.add('hide'), 3000); } else $('setor-erro').textContent = msg;
+}
+function montarSetores(setores) {
+  const box = $('setores'); box.innerHTML = '';
+  for (const s of setores) {
+    const nome = s.nome || s.key, id = 's-' + s.key.replace(/[^a-z0-9_-]/gi, '');
+    const div = document.createElement('div'); div.className = 'setor'; div.dataset.key = s.key;
+    div.innerHTML = `<div class="setor-topo"><span class="setor-nome"></span><span class="dica"></span></div>
+      <div class="grade"><div><label for="${id}-i">Impressora</label><select id="${id}-i" class="imp"></select></div>
+      <div><label for="${id}-r">Reserva (opcional)</label><select id="${id}-r" class="res"></select></div></div>
+      <button class="teste"></button>`;
+    div.querySelector('.setor-nome').textContent = nome;
+    div.querySelector('.dica').textContent = DICA[s.key] || (s.tipo === 'praca' ? 'Praça do salão' : '');
+    div.querySelector('.teste').textContent = 'Teste ' + nome.toUpperCase();
+    const salvar = () => post('/setor', { key: s.key, impressora: div.querySelector('.imp').value, reserva: div.querySelector('.res').value })
+      .then(() => { aviso(true); tick(); }).catch((e) => aviso(false, 'Não salvou: ' + e.message));
+    div.querySelector('.imp').onchange = salvar; div.querySelector('.res').onchange = salvar;
+    div.querySelector('.teste').onclick = (ev) => { const b = ev.currentTarget; b.disabled = true;
+      post('/teste', { setor: s.key }).then(() => aviso(true, `Teste ${nome.toUpperCase()} enviado: confira o papel.`)).catch((e) => aviso(false, `Teste ${nome.toUpperCase()} não saiu: ${e.message}`)).finally(() => b.disabled = false); };
+    box.append(div);
+  }
 }
 function ha(iso) { if (!iso || iso.startsWith('0001')) return ''; const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? 'agora' : s < 3600 ? `há ${Math.round(s/60)} min` : `há ${Math.round(s/3600)} h`; }
 async function tick() {
@@ -107,16 +144,35 @@ async function tick() {
     $('conexao').textContent = e.conectado ? '· conectado' : '· reconectando…';
     $('resumo').textContent = `${e.impressos} impresso(s) desde que abriu · ${e.na_fila} na fila` + (ha(e.ultima_impressao) ? ` · última impressão ${ha(e.ultima_impressao)}` : '');
     $('erro').classList.toggle('hide', !e.ultimo_erro); $('erro').textContent = e.ultimo_erro || '';
+    const setores = e.setores || [];
+    const ass = JSON.stringify(setores.map((s) => [s.key, s.nome, s.tipo]));
+    if (ass !== assinatura) { assinatura = ass; montarSetores(setores); }
     const lista = e.impressoras || [];
-    opcoes($('frente'), lista, e.frente, '— escolha —');
-    opcoes($('cozinha'), lista, e.cozinha, '— não tenho —');
+    for (const s of setores) {
+      const div = [...document.querySelectorAll('.setor')].find((x) => x.dataset.key === s.key); if (!div) continue;
+      opcoes(div.querySelector('.imp'), lista, s.impressora, s.key === 'frente' ? '— escolha —' : '— sem impressora (sai na da frente) —');
+      opcoes(div.querySelector('.res'), lista, s.reserva, '— sem reserva —');
+    }
+    const p = $('procurar'); p.disabled = !!e.procurando; p.textContent = e.procurando ? 'Procurando…' : 'Procurar impressoras';
   } catch { $('conexao').textContent = '· o programa fechou?'; }
 }
-['frente','cozinha'].forEach((id) => { $(id).addEventListener('focus', () => editando = true); $(id).addEventListener('blur', () => setTimeout(() => editando = false, 300)); });
-$('rede').addEventListener('change', () => { const v = $('rede').value.trim(); if (!v) return; for (const sel of [$('frente'), $('cozinha')]) if (![...sel.options].some((o) => o.value === v)) sel.append(new Option(v, v)); });
-$('salvar').onclick = () => post('/escolher', { frente: $('frente').value, cozinha: $('cozinha').value }).then(() => { $('salvo').classList.remove('hide'); setTimeout(() => $('salvo').classList.add('hide'), 4000); tick(); }).catch((e) => alert(e.message));
-$('teste-frente').onclick = () => post('/teste', { alvo: 'frente' }).catch((e) => alert('Não saiu: ' + e.message));
-$('teste-cozinha').onclick = () => post('/teste', { alvo: 'cozinha' }).catch((e) => alert('Não saiu: ' + e.message));
+$('rede').addEventListener('change', () => {
+  let v = $('rede').value.trim(); if (!v) return;
+  if (!/^tcp:\/\//i.test(v)) v = 'tcp://' + v;
+  if (!manuais.includes(v)) manuais.push(v);
+  $('rede').value = ''; document.querySelectorAll('.setor select').forEach((s) => s.dataset.k = ''); tick();
+  $('procurar-msg').textContent = `${v} entrou na lista: escolha no setor.`;
+});
+$('procurar').onclick = async () => {
+  const p = $('procurar'); p.disabled = true; p.textContent = 'Procurando…';
+  $('procurar-msg').textContent = 'Procurando na rede deste computador (leva alguns segundos)…';
+  try {
+    const r = await fetch('/procurar', { method: 'POST' }); if (!r.ok) throw new Error(await r.text());
+    const n = ((await r.json()).achadas || []).length;
+    $('procurar-msg').textContent = n ? `Achei ${n} impressora(s) de rede. Escolha no setor.` : 'Nenhuma impressora de rede respondeu na porta 9100. Confira se está ligada no mesmo Wi-Fi/cabo, ou digite o IP abaixo.';
+  } catch (e) { $('procurar-msg').textContent = 'Não deu pra procurar: ' + e.message; }
+  tick();
+};
 $('desvincular').onclick = () => { if (confirm('Desvincular este computador da loja? Os pedidos param de sair por aqui.')) post('/desvincular').then(tick); };
 $('autostart').onchange = () => post('/autostart', { ligado: $('autostart').checked }).catch((e) => alert(e.message));
 $('atualizar-log').onclick = async () => { $('log').textContent = await (await fetch('/log')).text(); $('log').classList.remove('hide'); $('log').scrollTop = 1e9; };

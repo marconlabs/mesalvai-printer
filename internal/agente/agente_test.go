@@ -28,7 +28,12 @@ type servidorFalso struct {
 	entregue bool
 	chave    string
 	acks     []string
+	ackCorpo map[string]map[string]any
 	status   []map[string]any
+	// config: corpo de GET /printer-agent/config; configs: quantas buscas.
+	config   string
+	configs  int
+	eventos  chan string
 	jobs     chan map[string]any
 	streams  int
 	derrubar chan struct{}
@@ -38,7 +43,8 @@ type servidorFalso struct {
 
 func novoServidor(t *testing.T) *servidorFalso {
 	t.Helper()
-	s := &servidorFalso{chave: "mpk_teste", jobs: make(chan map[string]any, 8), derrubar: make(chan struct{}, 1)}
+	s := &servidorFalso{chave: "mpk_teste", jobs: make(chan map[string]any, 8), derrubar: make(chan struct{}, 1),
+		ackCorpo: map[string]map[string]any{}, config: `{"config":{},"front_printer":null,"kitchen_printer":null}`, eventos: make(chan string, 4)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/entregas/printer-agent/pair/start", func(w http.ResponseWriter, r *http.Request) {
 		var b map[string]any
@@ -97,8 +103,21 @@ func novoServidor(t *testing.T) *servidorFalso {
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		s.mu.Lock()
 		s.acks = append(s.acks, r.PathValue("id")+":"+b["status"].(string))
+		s.ackCorpo[r.PathValue("id")] = b
 		s.mu.Unlock()
 		w.WriteHeader(204)
+	})
+	mux.HandleFunc("GET /api/entregas/printer-agent/config", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(r) {
+			w.WriteHeader(401)
+			return
+		}
+		s.mu.Lock()
+		s.configs++
+		c := s.config
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, c)
 	})
 	mux.HandleFunc("GET /api/entregas/printer-agent/stream", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(r) {
@@ -132,6 +151,9 @@ func novoServidor(t *testing.T) *servidorFalso {
 				}
 				_, _ = fmt.Fprint(w, ": ping\n\n")
 				fl.Flush()
+			case ev := <-s.eventos:
+				_, _ = fmt.Fprint(w, ev)
+				fl.Flush()
 			case j := <-s.jobs:
 				b, _ := json.Marshal(j)
 				_, _ = fmt.Fprintf(w, "event: job\ndata: %s\n\n", b)
@@ -159,17 +181,18 @@ func (s *servidorFalso) temAck(x string) bool {
 	return false
 }
 
-// impressoraFalsa grava o que recebeu e pode "cair".
+// impressoraFalsa grava o que recebeu e pode "cair" (toda ou só uma).
 type impressoraFalsa struct {
 	mu     sync.Mutex
 	caida  bool
+	caidas map[string]bool
 	saidas []string
 }
 
 func (i *impressoraFalsa) imprimir(_ context.Context, nome string, dados []byte) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.caida {
+	if i.caida || i.caidas[nome] {
 		return errors.New("sem papel")
 	}
 	i.saidas = append(i.saidas, nome+":"+strings.TrimSpace(string(dados[2:])))

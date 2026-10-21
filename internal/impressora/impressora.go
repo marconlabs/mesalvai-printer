@@ -23,6 +23,8 @@ var ErrSemImpressora = errors.New("nenhuma impressora escolhida")
 type Info struct {
 	Nome   string `json:"nome"`
 	Padrao bool   `json:"padrao"`
+	// Rotulo: como mostrar (ex.: "Rede 192.168.0.50" pra "tcp://192.168.0.50:9100").
+	Rotulo string `json:"rotulo,omitempty"`
 }
 
 // Listar as impressoras do sistema (sem as de rede digitadas à mão).

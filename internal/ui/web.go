@@ -70,17 +70,40 @@ func (w *Web) Servir(ctx context.Context) (string, error) {
 		}
 		rw.WriteHeader(204)
 	})
-	mux.HandleFunc("POST /teste", func(rw http.ResponseWriter, r *http.Request) {
-		var b struct{ Alvo string }
+	// v2: impressora e reserva de um setor (salva na hora que escolhe).
+	mux.HandleFunc("POST /setor", func(rw http.ResponseWriter, r *http.Request) {
+		var b struct{ Key, Impressora, Reserva string }
 		_ = json.NewDecoder(r.Body).Decode(&b)
-		if b.Alvo != "cozinha" {
-			b.Alvo = "frente"
+		if err := w.Agente.VincularSetor(r.Context(), b.Key, b.Impressora, b.Reserva); err != nil {
+			http.Error(rw, err.Error(), 400)
+			return
 		}
-		if err := w.Agente.TestePapel(r.Context(), b.Alvo); err != nil {
+		rw.WriteHeader(204)
+	})
+	mux.HandleFunc("POST /teste", func(rw http.ResponseWriter, r *http.Request) {
+		var b struct{ Setor, Alvo string }
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		setor := strings.TrimSpace(b.Setor)
+		if setor == "" {
+			setor = strings.TrimSpace(b.Alvo) // janela antiga (v1)
+		}
+		if setor == "" {
+			setor = "frente"
+		}
+		if err := w.Agente.TestePapel(r.Context(), setor); err != nil {
 			http.Error(rw, err.Error(), 500)
 			return
 		}
 		rw.WriteHeader(204)
+	})
+	// Procurar impressoras de rede (porta 9100) — só quando a pessoa pede.
+	mux.HandleFunc("POST /procurar", func(rw http.ResponseWriter, r *http.Request) {
+		achou, err := w.Agente.Procurar(r.Context())
+		if err != nil {
+			http.Error(rw, err.Error(), 409)
+			return
+		}
+		json_(rw, map[string]any{"achadas": achou})
 	})
 	mux.HandleFunc("POST /desvincular", func(rw http.ResponseWriter, r *http.Request) {
 		w.Agente.Desvincular()

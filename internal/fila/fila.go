@@ -24,6 +24,12 @@ type Item struct {
 	ChegouEm   time.Time `json:"chegou_em"`
 	Tentativas int       `json:"tentativas"`
 	UltimoErro string    `json:"ultimo_erro,omitempty"`
+	// v2 (opcionais: item gravado pela v1 abre sem eles).
+	SectorName string `json:"sector_name,omitempty"`
+	Papel      string `json:"papel,omitempty"`
+	Origem     string `json:"origem,omitempty"`
+	// Reserva: o servidor já desviou e pôs o nome do setor no topo.
+	Reserva bool `json:"reserva,omitempty"`
 }
 
 // Fila é a pasta com os itens.
