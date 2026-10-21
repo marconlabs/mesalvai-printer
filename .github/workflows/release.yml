@@ -30,6 +30,9 @@ jobs:
         with: { name: windows, path: dist/ }
   mac:
     runs-on: macos-14
+    # `secrets` não pode entrar no `if` de um passo: vira env no job.
+    env:
+      HAS_MAC_CERT: ${{ secrets.MAC_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -62,7 +65,7 @@ jobs:
           </dict></plist>
           PLIST
       - name: Assinar e notarizar (só com os segredos)
-        if: ${{ secrets.MAC_CERT_P12 != '' }}
+        if: env.HAS_MAC_CERT == 'true'
         env:
           MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
