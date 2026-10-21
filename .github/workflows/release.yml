@@ -62,7 +62,7 @@ jobs:
           </dict></plist>
           PLIST
       - name: Assinar e notarizar (só com os segredos)
-        if: ${{ env.MAC_CERT_P12 != '' }}
+        if: ${{ secrets.MAC_CERT_P12 != '' }}
         env:
           MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
