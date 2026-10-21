@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesalvaí Printer</title>
+<style>
+  :root { --bg:#f7f7f3; --card:#fff; --ink:#111; --muted:#666; --line:#e4e4de; --cta:#7aff00; --ok:#006636; --warn:#b45309; --bad:#b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1b1b1b; --ink:#f3f3f3; --muted:#aaa; --line:#2c2c2c; --ok:#7aff00; } }
+  * { box-sizing:border-box } body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink) }
+  main { max-width:640px; margin:0 auto; padding:20px 16px 48px }
+  h1 { font-size:20px; margin:0 0 4px } .sub { color:var(--muted); margin:0 0 16px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px }
+  .card h2 { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 10px }
+  .codigo { font:700 44px/1 ui-monospace,Menlo,Consolas,monospace; letter-spacing:.35em; text-align:center; padding:18px 0 8px }
+  .dica { color:var(--muted); font-size:13px }
+  .status { display:flex; align-items:center; gap:8px; font-weight:600 }
+  .dot { width:10px; height:10px; border-radius:50%; background:#999 } .dot.on { background:var(--ok) }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px }
+  select, input { width:100%; min-height:44px; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink) }
+  .row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px }
+  button { min-height:44px; padding:0 16px; font:inherit; font-weight:600; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer }
+  button.cta { background:var(--cta); color:#111; border-color:#111 }
+  button.bad { color:var(--bad) }
+  .erro { color:var(--bad); font-size:13px; margin-top:8px } .ok { color:var(--ok); font-size:13px }
+  pre { font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; white-space:pre-wrap; max-height:260px; overflow:auto; background:var(--bg); padding:10px; border-radius:10px }
+  .chk { display:flex; align-items:center; gap:10px; min-height:44px }
+  .chk input { width:20px; height:20px; min-height:0 }
+  .hide { display:none }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mesalvaí Printer</h1>
+  <p class="sub">Imprime os pedidos da loja mesmo com o painel fechado. Versão <span id="versao">?</span>.</p>
+
+  <section class="card" id="pareamento">
+    <h2>Vincular à loja</h2>
+    <p>No painel, abra <b>Configurações › Este aparelho › Impressora › Computador de impressão</b> e digite estas letras:</p>
+    <div class="codigo" id="codigo">······</div>
+    <p class="dica" id="codigo-dica">O código vale 10 minutos. Vencido? Um novo aparece sozinho.</p>
+  </section>
+
+  <section class="card hide" id="vinculado">
+    <h2>Loja</h2>
+    <div class="status"><span class="dot" id="dot"></span> <span id="loja"></span> <span class="dica" id="conexao"></span></div>
+    <p class="dica" id="resumo"></p>
+    <p class="erro hide" id="erro"></p>
+  </section>
+
+  <section class="card hide" id="impressoras">
+    <h2>Impressoras</h2>
+    <label for="frente">Frente (balcão): comanda do pedido e etiqueta da caixa</label>
+    <select id="frente"></select>
+    <label for="cozinha">Cozinha: papel de preparo (opcional — sem ela, sai na da frente)</label>
+    <select id="cozinha"><option value="">— não tenho —</option></select>
+    <label for="rede">Impressora de rede (opcional): digite <code>tcp://IP</code> e escolha na lista</label>
+    <input id="rede" placeholder="tcp://192.168.0.50" inputmode="url">
+    <div class="row">
+      <button class="cta" id="salvar">Salvar impressoras</button>
+      <button id="teste-frente">Imprimir teste (frente)</button>
+      <button id="teste-cozinha">Teste (cozinha)</button>
+    </div>
+    <p class="ok hide" id="salvo">Salvo. O painel já mostra as impressoras deste computador.</p>
+  </section>
+
+  <section class="card">
+    <h2>Este computador</h2>
+    <label class="chk"><input type="checkbox" id="autostart"> Abrir junto com o sistema (recomendado)</label>
+    <div class="row">
+      <button id="atualizar-log">Ver log</button>
+      <button class="bad hide" id="desvincular">Desvincular desta loja</button>
+      <button id="sair">Fechar o programa</button>
+    </div>
+    <p class="dica">Config e fila ficam em <code id="pasta"></code>. Fechar o programa = os pedidos deixam de sair por aqui (o painel no navegador volta a imprimir).</p>
+    <pre class="hide" id="log"></pre>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (p, b) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b ?? {}) }).then(async (r) => { if (!r.ok) throw new Error(await r.text()); });
+let estado = null, editando = false;
+function opcoes(sel, lista, atual, vazio) {
+  const antes = sel.value;
+  sel.innerHTML = '';
+  if (vazio) sel.append(new Option(vazio, ''));
+  const nomes = lista.map((i) => i.nome);
+  if (atual && !nomes.includes(atual)) nomes.unshift(atual);
+  for (const n of nomes) sel.append(new Option(n, n));
+  sel.value = editando ? antes : (atual ?? '');
+}
+function ha(iso) { if (!iso || iso.startsWith('0001')) return ''; const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? 'agora' : s < 3600 ? `há ${Math.round(s/60)} min` : `há ${Math.round(s/3600)} h`; }
+async function tick() {
+  try {
+    const d = await (await fetch('/estado')).json();
+    const e = d.estado; estado = e;
+    $('versao').textContent = e.versao; $('pasta').textContent = d.log.replace(/[\\/][^\\/]*$/, '');
+    $('autostart').checked = d.auto_start;
+    $('pareamento').classList.toggle('hide', e.vinculado);
+    $('vinculado').classList.toggle('hide', !e.vinculado);
+    $('impressoras').classList.toggle('hide', !e.vinculado);
+    $('desvincular').classList.toggle('hide', !e.vinculado);
+    $('codigo').textContent = e.codigo ? e.codigo.split('').join(' ') : '······';
+    $('codigo-dica').textContent = e.codigo ? 'O código vale 10 minutos. Vencido? Um novo aparece sozinho.' : (e.ultimo_erro || 'Pedindo um código à Mesalvaí…');
+    $('dot').classList.toggle('on', e.conectado);
+    $('loja').textContent = e.loja_nome || '—';
+    $('conexao').textContent = e.conectado ? '· conectado' : '· reconectando…';
+    $('resumo').textContent = `${e.impressos} impresso(s) desde que abriu · ${e.na_fila} na fila` + (ha(e.ultima_impressao) ? ` · última impressão ${ha(e.ultima_impressao)}` : '');
+    $('erro').classList.toggle('hide', !e.ultimo_erro); $('erro').textContent = e.ultimo_erro || '';
+    const lista = e.impressoras || [];
+    opcoes($('frente'), lista, e.frente, '— escolha —');
+    opcoes($('cozinha'), lista, e.cozinha, '— não tenho —');
+  } catch { $('conexao').textContent = '· o programa fechou?'; }
+}
+['frente','cozinha'].forEach((id) => { $(id).addEventListener('focus', () => editando = true); $(id).addEventListener('blur', () => setTimeout(() => editando = false, 300)); });
+$('rede').addEventListener('change', () => { const v = $('rede').value.trim(); if (!v) return; for (const sel of [$('frente'), $('cozinha')]) if (![...sel.options].some((o) => o.value === v)) sel.append(new Option(v, v)); });
+$('salvar').onclick = () => post('/escolher', { frente: $('frente').value, cozinha: $('cozinha').value }).then(() => { $('salvo').classList.remove('hide'); setTimeout(() => $('salvo').classList.add('hide'), 4000); tick(); }).catch((e) => alert(e.message));
+$('teste-frente').onclick = () => post('/teste', { alvo: 'frente' }).catch((e) => alert('Não saiu: ' + e.message));
+$('teste-cozinha').onclick = () => post('/teste', { alvo: 'cozinha' }).catch((e) => alert('Não saiu: ' + e.message));
+$('desvincular').onclick = () => { if (confirm('Desvincular este computador da loja? Os pedidos param de sair por aqui.')) post('/desvincular').then(tick); };
+$('autostart').onchange = () => post('/autostart', { ligado: $('autostart').checked }).catch((e) => alert(e.message));
+$('atualizar-log').onclick = async () => { $('log').textContent = await (await fetch('/log')).text(); $('log').classList.remove('hide'); $('log').scrollTop = 1e9; };
+$('sair').onclick = () => { if (confirm('Fechar o Mesalvaí Printer? Os pedidos deixam de sair por este computador.')) post('/sair').then(() => { document.body.innerHTML = '<main><h1>Programa fechado.</h1><p>Pode fechar esta aba.</p></main>'; }); };
+tick(); setInterval(tick, 2000);
+</script>
+</body>
+</html>

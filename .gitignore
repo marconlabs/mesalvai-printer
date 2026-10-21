@@ -1,0 +1,5 @@
+/dist/
+/mesalvai-printer
+/mesalvai-printer.exe
+*.log
+.DS_Store
