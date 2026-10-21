@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/marconlabs/mesalvai-printer/internal/config"
+	"github.com/marconlabs/mesalvai-printer/internal/fila"
 	"github.com/marconlabs/mesalvai-printer/internal/impressora"
 )
 
@@ -273,5 +274,37 @@ func TestTesteDoSetorComNomeGrande(t *testing.T) {
 	s := imp.todas()
 	if len(s) != 1 || !strings.HasPrefix(s[0], "COZ:") || !strings.Contains(s[0], "TESTE\nCOZINHA QUENTE\n") {
 		t.Fatalf("teste: %q", s)
+	}
+}
+
+// As impressoras achadas em "Procurar" ficam no config: reiniciou o programa,
+// continuam na lista (e no status) mesmo sem setor vinculado.
+func TestProcurarLembraDepoisDeReiniciar(t *testing.T) {
+	srv := novoServidor(t)
+	imp := &impressoraFalsa{}
+	a, cfg := rodar(t, srv, imp, nil)
+	a.op.Procurar = func(context.Context) []impressora.Info {
+		return []impressora.Info{{Nome: "tcp://192.168.0.50:9100", Rotulo: "Rede 192.168.0.50"}}
+	}
+	if _, err := a.Procurar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Segunda busca acha outra; a primeira (desligada agora) continua lembrada.
+	a.op.Procurar = func(context.Context) []impressora.Info {
+		return []impressora.Info{{Nome: "tcp://192.168.0.51:9100", Rotulo: "Rede 192.168.0.51"}}
+	}
+	_, _ = a.Procurar(context.Background())
+	if r := cfg.Get().Rede; len(r) != 2 || r[0].Nome != "tcp://192.168.0.51:9100" || r[1].Rotulo != "Rede 192.168.0.50" {
+		t.Fatalf("rede no config: %+v", r)
+	}
+	// "Reinicia": um agente novo com o mesmo config já lista as duas.
+	f, _ := fila.Abrir(t.TempDir())
+	b := New(cfg, f, Opcoes{Listar: func() ([]impressora.Info, error) { return []impressora.Info{{Nome: "EPSON"}}, nil }})
+	nomes := []string{}
+	for _, i := range b.impressoras() {
+		nomes = append(nomes, i.Nome)
+	}
+	if strings.Join(nomes, ",") != "EPSON,tcp://192.168.0.51:9100,tcp://192.168.0.50:9100" {
+		t.Fatalf("lista depois de reiniciar: %v", nomes)
 	}
 }

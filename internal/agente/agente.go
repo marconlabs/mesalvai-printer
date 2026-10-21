@@ -121,6 +121,10 @@ func New(cfg *config.Store, f *fila.Fila, op Opcoes) *Agente {
 	}
 	c := cfg.Get()
 	a := &Agente{cfg: cfg, fila: f, op: op, acorda: make(chan struct{}, 1), naReserva: map[string]bool{}}
+	// Impressoras de rede achadas antes (Procurar) voltam pra lista.
+	for _, r := range cfg.Get().Rede {
+		a.rede = append(a.rede, impressora.Info{Nome: r.Nome, Rotulo: r.Rotulo})
+	}
 	a.est = Estado{Vinculado: c.Chave != "", LojaNome: c.LojaNome, AgenteNome: c.AgenteNome, Frente: c.Frente, Cozinha: c.Cozinha, Setores: setoresDoEstado(c), NaFila: f.Tamanho(), Versao: op.Versao}
 	return a
 }
@@ -629,8 +633,18 @@ func (a *Agente) Procurar(ctx context.Context) ([]impressora.Info, error) {
 	a.mu.Unlock()
 	a.mudar(func(*Estado) {})
 	achou := a.op.Procurar(ctx)
+	agora := make([]config.RedeAchada, 0, len(achou))
+	for _, i := range achou {
+		agora = append(agora, config.RedeAchada{Nome: i.Nome, Rotulo: i.Rotulo})
+	}
+	// Grava no config: depois de reiniciar, as achadas continuam na lista.
+	_ = a.cfg.Update(func(c *config.Config) { c.Rede = config.JuntarRede(c.Rede, agora) })
+	lembradas := a.cfg.Get().Rede
 	a.mu.Lock()
-	a.rede = achou
+	a.rede = a.rede[:0]
+	for _, r := range lembradas {
+		a.rede = append(a.rede, impressora.Info{Nome: r.Nome, Rotulo: r.Rotulo})
+	}
 	a.mu.Unlock()
 	infos := a.impressoras()
 	a.mudar(func(e *Estado) { e.Procurando, e.Impressoras = false, infos })
