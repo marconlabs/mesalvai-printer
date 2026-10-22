@@ -68,6 +68,14 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
 - Achou = entra na lista como "Rede 192.168.0.50" (`tcp://192.168.0.50:9100`)
   e vai no `printers` do status (o painel também pode escolher).
 - Também dá pra digitar `tcp://IP` (ou `tcp://IP:porta`) à mão.
+- A procura **só abre e fecha a conexão** na porta 9100: nunca manda bytes,
+  então nada sai impresso durante a procura.
+- Teto de **20 s** por procura (várias placas de rede, VPN): o que respondeu
+  até ali entra na lista; a janela nunca fica presa em "procurando".
+- As achadas ficam **lembradas no config.json** (`rede`, até 30): depois de
+  reiniciar o programa continuam na lista e no `printers` do status, mesmo
+  sem setor vinculado e mesmo que não respondam na próxima procura (podem
+  estar desligadas).
 
 ## v1 × v2
 
@@ -81,4 +89,23 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
 | `caps` no status | — | `["setores","reserva","procurar"]` |
 
 O servidor manda pra um computador sem `caps` (v1) só `frente`/`cozinha`. O
-programa v1 atualiza sozinho pra v2 (releases/latest).
+programa v1 atualiza sozinho pra v2 (releases/latest): confere 1 min depois de
+abrir e a cada 6 h, troca o binário e **só vale no próximo arranque** (não
+reinicia no meio do expediente). O config.json da v1 abre igual na v2
+(vínculo, frente e cozinha mantidos; os campos da v1 continuam gravados, então
+voltar pra v1 também abre).
+
+**Sem configurar nada, a v2 imprime igual à v1**: setores padrão frente e
+cozinha, cozinha sem impressora sai na frente. Servidor antigo (sem
+`setores`/`bindings` no `GET /printer-agent/config`) não mexe no que está no
+computador; os campos novos do status/ack são ignorados por ele.
+
+### Release v2.0.0
+
+Tag `v2.0.0` em `main` → workflow `release` monta
+`mesalvai-printer-windows-amd64.exe`, `mesalvai-printer-darwin-universal`
+(o auto-update do Mac usa este), `mesalvai-printer-mac.zip`,
+`mesalvai-printer-mac.dmg` e `checksums.txt` (os mesmos nomes da v1.0.0; o
+painel baixa por `releases/latest/download/<arquivo>`, então não muda nada lá).
+A versão vem da tag (`-X main.versao=v2.0.0`). Mac exige cgo (systray): só
+compila no runner macOS.

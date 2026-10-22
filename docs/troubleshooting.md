@@ -38,6 +38,21 @@ setor.
 - Impressora desligada ou sem IP: imprima a página de configuração dela
   (geralmente segurando o botão FEED ao ligar) pra ver o IP.
 
+## Impressora de rede velha continua na lista
+
+As achadas em "Procurar impressoras" ficam lembradas (até 30), mesmo sem
+responder — pode ser só que estavam desligadas. Se a impressora trocou de IP
+(roteador deu outro), procure de novo e vincule o IP novo no setor; o antigo
+fica na lista sem uso. Pra limpar de vez: feche o programa e apague o bloco
+`"rede"` do `config.json` (pasta do programa: `%AppData%\mesalvai-printer` no
+Windows, `~/Library/Application Support/mesalvai-printer` no Mac).
+
+## "Procurar impressoras" demorou e voltou com pouca coisa
+
+A procura tem teto de 20 s. Computador com VPN ou várias placas de rede testa
+um /24 por placa; o que respondeu até o teto entra. Toque de novo (as achadas
+antes continuam lembradas) ou digite `tcp://IP`.
+
 ## A janela não mostra "Setores" (só frente e cozinha)
 
 O programa instalado é a v1. Ele atualiza sozinho (confere 1 min depois de

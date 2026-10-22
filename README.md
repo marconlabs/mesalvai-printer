@@ -61,7 +61,8 @@ ganha uma chave própria que a loja revoga em "Desvincular".
 - **Procurar impressoras** (só quando você toca): testa a porta 9100 nas
   sub-redes privadas deste computador (no máximo um /24 por placa de rede,
   300 ms por IP, 64 por vez). As achadas aparecem como "Rede 192.168.0.50"
-  (`tcp://192.168.0.50:9100`) e vão pro painel.
+  (`tcp://192.168.0.50:9100`), vão pro painel e ficam lembradas depois de
+  reiniciar. Teto de 20 s; a procura só abre e fecha a conexão (nada imprime).
 - Vários computadores na mesma loja e várias impressoras por computador: cada
   setor aponta pra qualquer impressora de qualquer computador vinculado.
 - Atualiza sozinho pelo [releases/latest](https://github.com/marconlabs/mesalvai-printer/releases/latest)

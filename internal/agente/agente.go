@@ -621,8 +621,11 @@ func (a *Agente) laçoDasImpressoras(ctx context.Context) {
 	}
 }
 
+// TetoProcurar: tempo máximo de uma procura de impressoras de rede.
+var TetoProcurar = 20 * time.Second
+
 // Procurar varre a rede atrás de impressoras (porta 9100). Só quando a
-// pessoa pede. As achadas entram na lista e vão pro painel no status.
+// pessoa pede (abre e fecha a conexão, nunca manda bytes). As achadas entram na lista e vão pro painel no status.
 func (a *Agente) Procurar(ctx context.Context) ([]impressora.Info, error) {
 	a.mu.Lock()
 	if a.est.Procurando {
@@ -632,7 +635,11 @@ func (a *Agente) Procurar(ctx context.Context) ([]impressora.Info, error) {
 	a.est.Procurando = true
 	a.mu.Unlock()
 	a.mudar(func(*Estado) {})
-	achou := a.op.Procurar(ctx)
+	// Teto da procura: mesmo com várias placas de rede (VPN, Wi-Fi e cabo)
+	// a janela volta em no máximo TetoProcurar; o que respondeu até ali fica.
+	pctx, cancel := context.WithTimeout(ctx, TetoProcurar)
+	achou := a.op.Procurar(pctx)
+	cancel()
 	agora := make([]config.RedeAchada, 0, len(achou))
 	for _, i := range achou {
 		agora = append(agora, config.RedeAchada{Nome: i.Nome, Rotulo: i.Rotulo})

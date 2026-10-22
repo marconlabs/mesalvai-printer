@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/marconlabs/mesalvai-printer/internal/config"
 	"github.com/marconlabs/mesalvai-printer/internal/fila"
@@ -306,5 +307,30 @@ func TestProcurarLembraDepoisDeReiniciar(t *testing.T) {
 	}
 	if strings.Join(nomes, ",") != "EPSON,tcp://192.168.0.51:9100,tcp://192.168.0.50:9100" {
 		t.Fatalf("lista depois de reiniciar: %v", nomes)
+	}
+}
+
+// Procurar tem teto: uma varredura que não acaba devolve a janela no prazo
+// (e o estado "procurando" sai), sem imprimir nada.
+func TestProcurarTemTeto(t *testing.T) {
+	srv := novoServidor(t)
+	imp := &impressoraFalsa{}
+	a, _ := rodar(t, srv, imp, nil)
+	antes := TetoProcurar
+	TetoProcurar = 50 * time.Millisecond
+	t.Cleanup(func() { TetoProcurar = antes })
+	a.op.Procurar = func(ctx context.Context) []impressora.Info {
+		<-ctx.Done()
+		return nil
+	}
+	ini := time.Now()
+	if _, err := a.Procurar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(ini); d > 5*time.Second {
+		t.Fatalf("procura passou do teto: %v", d)
+	}
+	if a.Estado().Procurando {
+		t.Fatal("ficou procurando")
 	}
 }
