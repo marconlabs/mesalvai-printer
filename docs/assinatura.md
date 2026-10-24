@@ -15,7 +15,7 @@
    *Public Trust*.
 2. Service principal com papel *Trusted Signing Certificate Profile Signer*;
    guardar `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` como
-   segredos do Actions.
+   variáveis de ambiente do `scripts/release.sh` (`MAC_SIGN_IDENTITY`, `APPLE_ID`…).
 3. No `release.yml`, job `windows` passa a rodar em `windows-latest` e, depois
    do build, a action `azure/trusted-signing-action@v0`:
    ```yaml

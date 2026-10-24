@@ -10,7 +10,7 @@ MESALVAI_API=http://localhost:8080 go run ./cmd/mesalvai-printer  # contra API l
 MESALVAI_PRINTER_DIR=/tmp/mp go run ./cmd/mesalvai-printer        # pasta própria (não toca a config real)
 GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui" ./cmd/mesalvai-printer
 ```
-Release: `git tag vX.Y.Z && git push --tags` → `.github/workflows/release.yml` (`.exe`, `.dmg`, `checksums.txt`). Só com ordem do dono.
+Release (local, num Mac, sem Actions): `scripts/release.sh vX.Y.Z` → `.exe`, `.zip`/`.dmg`, `checksums.txt`, tag e GitHub Release. Só com ordem do dono.
 
 ## Regras que não se quebram
 - Nomes dos arquivos de release não mudam: o painel baixa `mesalvai-printer-windows-amd64.exe` e `mesalvai-printer-mac.dmg` de `releases/latest`.

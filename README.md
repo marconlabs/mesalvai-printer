@@ -103,7 +103,7 @@ MESALVAI_PRINTER_DIR=/tmp/mp go run ./cmd/mesalvai-printer         # pasta próp
 GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui" ./cmd/mesalvai-printer
 ```
 
-Release: `git tag v2.0.0 && git push --tags` → `.github/workflows/release.yml`
+Release: `git tag v2.0.0 && git push --tags` → (substituído: use `scripts/release.sh vX.Y.Z`, local num Mac)
 gera `.exe`, `.zip`/`.dmg` universal e `checksums.txt` (os nomes dos
 arquivos não mudam: o painel baixa `mesalvai-printer-windows-amd64.exe` e
 `mesalvai-printer-mac.dmg` de `releases/latest`). Publicar a v2 só depois da
