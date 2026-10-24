@@ -9,6 +9,8 @@ go run ./cmd/mesalvai-printer --sem-bandeja                       # sem ícone; 
 MESALVAI_API=http://localhost:8080 go run ./cmd/mesalvai-printer  # contra API local
 MESALVAI_PRINTER_DIR=/tmp/mp go run ./cmd/mesalvai-printer        # pasta própria (não toca a config real)
 GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui" ./cmd/mesalvai-printer
+tool/check.sh [--fast]    # = make check: gofmt -l + go vet + go test (CHECK OK no fim); testes de banco pulam sem TEST_DATABASE_URL
+tool/install-hooks.sh     # ativa .githooks/pre-push: push para main roda o check --fast e bloqueia se falhar (bypass: --no-verify, só com ordem do dono)
 ```
 Release (local, num Mac, sem Actions): `scripts/release.sh vX.Y.Z` → `.exe`, `.zip`/`.dmg`, `checksums.txt`, tag e GitHub Release. Só com ordem do dono.
 

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Trava de publicação: push para main roda tool/check.sh --fast. Bypass: git push --no-verify (só com ordem do dono).
+set -euo pipefail
+ZERO="0000000000000000000000000000000000000000"
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "${remote_ref:-}" = "refs/heads/main" ] && [ "${local_sha:-$ZERO}" != "$ZERO" ]; then
+    echo "pre-push: push para main, rodando tool/check.sh --fast ..."
+    if ! "$(git rev-parse --show-toplevel)/tool/check.sh" --fast; then
+      echo "pre-push BLOQUEADO: o check falhou. Corrija antes de publicar." >&2
+      echo "(bypass: git push --no-verify, só com ordem do dono)" >&2
+      exit 1
+    fi
+  fi
+done
+exit 0
