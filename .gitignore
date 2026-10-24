@@ -3,3 +3,5 @@
 /mesalvai-printer.exe
 *.log
 .DS_Store
+.env
+.env.local
