@@ -117,7 +117,28 @@ type SetorStatus struct {
 }
 
 // Caps que este programa entende (v2).
-var Caps = []string{"setores", "reserva", "procurar"}
+// "saude" = manda o estado de cada setor (P2/P4); "cancel" = entende o evento
+// `cancel {job_ids}` (o navegador assumiu o papel). Servidor sem esses caps
+// nunca recebe nem manda nada novo.
+var Caps = []string{"setores", "reserva", "procurar", "saude", "cancel"}
+
+// SaudeSetor é o estado de um setor neste computador (Status.Saude). A API
+// não precisa do relógio daqui: `fora_ha_s` já diz há quanto tempo o setor
+// não consegue imprimir e `degradado` é a decisão do Printer (2 min fora).
+type SaudeSetor struct {
+	Estado     string `json:"estado"` // pronta | sem_papel | tampa_aberta | sem_resposta
+	Lido       bool   `json:"lido"`
+	Detalhe    string `json:"detalhe,omitempty"`
+	Impressora string `json:"impressora,omitempty"`
+	NaReserva  bool   `json:"na_reserva,omitempty"`
+	// Imprime: a principal OU a reserva está pronta.
+	Imprime   bool `json:"imprime"`
+	ForaHaS   int  `json:"fora_ha_s,omitempty"`
+	Degradado bool `json:"degradado,omitempty"`
+	IPMudou   bool `json:"ip_mudou,omitempty"`
+	// TesteEm: último "Imprimir teste" que saiu daqui (RFC 3339); vazio = falta o teste.
+	TesteEm string `json:"teste_em,omitempty"`
+}
 
 // AckInfo é o corpo do ack v2.
 type AckInfo struct {
@@ -136,9 +157,11 @@ type Hello struct {
 
 // Evento do stream SSE.
 type Evento struct {
-	Tipo  string // hello | job | revoked | config | ping
+	Tipo  string // hello | job | revoked | config | cancel | ping
 	Job   *Job
 	Hello *Hello
+	// Cancelar: ids dos papéis que o navegador assumiu (evento cancel).
+	Cancelar []string
 }
 
 // Status é o que o programa manda em POST /printer-agent/status.
@@ -152,6 +175,10 @@ type Status struct {
 	// v2: vínculos que mudaram (parcial; valor nil = apaga) e o que entende.
 	Setores map[string]*SetorStatus `json:"setores,omitempty"`
 	Caps    []string                `json:"caps,omitempty"`
+	// Saude por setor (chave do setor). Sempre completo: quem não vem, saiu.
+	Saude map[string]SaudeSetor `json:"saude,omitempty"`
+	// SemSono: o programa está impedindo o repouso do computador (P1).
+	SemSono *bool `json:"sem_sono,omitempty"`
 }
 
 // Me é a resposta de GET /printer-agent/me.
@@ -385,6 +412,14 @@ func parseEvento(tipo, data string) (Evento, error) {
 	case "config":
 		// "Busque GET /printer-agent/config de novo" (o corpo não importa).
 		return Evento{Tipo: "config"}, nil
+	case "cancel":
+		var c struct {
+			JobIDs []string `json:"job_ids"`
+		}
+		if err := json.Unmarshal([]byte(data), &c); err != nil {
+			return Evento{}, err
+		}
+		return Evento{Tipo: "cancel", Cancelar: c.JobIDs}, nil
 	}
 	return Evento{}, fmt.Errorf("evento desconhecido %q", tipo)
 }

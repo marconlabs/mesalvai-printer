@@ -70,3 +70,44 @@ lista guardada enquanto estiver sem rede.
 
 Fica gravado neste computador e vale na hora pra impressão; sobe pro painel
 quando a conexão voltar.
+
+## A janela diz "Sem papel" ou "Tampa aberta" e o papel não sai
+
+O programa leu o estado da impressora (a cada 30 s e antes de cada papel) e
+**não manda** o papel enquanto ela diz isso: iria para o buffer e nunca
+sairia. Ponha papel / feche a tampa; o próximo papel da fila sai sozinho (a
+fila tenta a cada 15 s). Com **reserva** no setor, o papel já sai na reserva.
+Se a impressora diz isso sem ser verdade, é leitura errada do modelo: anote o
+modelo e teste na janela com "Teste do setor"; o programa só confia em
+resposta com os bits fixos certos.
+
+## "Alcançável (esta impressora não conta papel nem tampa)"
+
+Normal em muita impressora de rede barata: ela abre a porta 9100 mas não
+responde ao pedido de estado. O programa só sabe que ela está **ligada na
+rede**; sem papel/tampa aberta só aparece no papel que não sai (e aí o erro
+vai pro painel). USB com driver: o Windows só conta o que o driver conta.
+
+## "O IP desta impressora pode ter mudado"
+
+A impressora de rede parou de responder (2 leituras seguidas). Roteador que
+reiniciou costuma dar outro IP. Toque em **Procurar de novo** e escolha a
+nova no setor. Para não acontecer: **reserve o IP da impressora no
+roteador** (DHCP reservado) ou ponha IP fixo nela. O programa nunca troca o
+IP sozinho.
+
+## O navegador começou a imprimir um setor sozinho
+
+Principal e reserva do setor ficaram fora por mais de 2 min: o servidor
+passou aquele setor para o navegador (é melhor sair no navegador do que
+nenhum papel). Quando a impressora voltar a responder, o setor volta a ser do
+computador sozinho. Se um papel aparece em dobro, confira a versão do
+programa (a API só tira da fila o que o programa de versão com `cancel`
+entende).
+
+## O computador dormiu e os pedidos pararam de sair
+
+O programa impede o repouso por **inatividade** (Windows/Mac), mas **fechar a
+tampa do notebook ainda suspende**. Deixe a tampa aberta e na tomada. Se a
+janela mostra "Deixe este computador acordado" com um erro, o sistema não
+deixou: nas configurações de energia escolha "nunca suspender".

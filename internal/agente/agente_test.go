@@ -187,6 +187,26 @@ type impressoraFalsa struct {
 	caida  bool
 	caidas map[string]bool
 	saidas []string
+	// lidas: o que a "impressora" responde ao pedido de estado (padrão: pronta).
+	lidas map[string]impressora.Leitura
+}
+
+func (i *impressoraFalsa) ler(_ context.Context, nome string) impressora.Leitura {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if l, ok := i.lidas[nome]; ok {
+		return l
+	}
+	return impressora.Leitura{Situacao: impressora.Pronta, Lido: true}
+}
+
+func (i *impressoraFalsa) estado(nome string, l impressora.Leitura) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.lidas == nil {
+		i.lidas = map[string]impressora.Leitura{}
+	}
+	i.lidas[nome] = l
 }
 
 func (i *impressoraFalsa) imprimir(_ context.Context, nome string, dados []byte) error {
@@ -223,7 +243,7 @@ func montar(t *testing.T, srv *servidorFalso, imp *impressoraFalsa) (*Agente, *c
 	f, _ := fila.Abrir(filepath.Join(dir, "fila"))
 	a := New(cfg, f, Opcoes{
 		Versao: "0.0.0-teste", SO: "teste", NomeDoPC: "PC-TESTE",
-		Imprimir: imp.imprimir,
+		Imprimir: imp.imprimir, Ler: imp.ler, SaudeCada: 40 * time.Millisecond,
 		Listar: func() ([]impressora.Info, error) {
 			return []impressora.Info{{Nome: "EPSON", Padrao: true}, {Nome: "COZ"}}, nil
 		},

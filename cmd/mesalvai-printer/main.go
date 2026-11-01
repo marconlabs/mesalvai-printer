@@ -20,6 +20,7 @@ import (
 	"github.com/marconlabs/mesalvai-printer/internal/agente"
 	"github.com/marconlabs/mesalvai-printer/internal/autostart"
 	"github.com/marconlabs/mesalvai-printer/internal/config"
+	"github.com/marconlabs/mesalvai-printer/internal/energia"
 	"github.com/marconlabs/mesalvai-printer/internal/fila"
 	"github.com/marconlabs/mesalvai-printer/internal/logs"
 	"github.com/marconlabs/mesalvai-printer/internal/ui"
@@ -56,6 +57,13 @@ func main() {
 	avisar := func(t, x string) { log.Info("aviso", "titulo", t, "texto", x); ui.Balao(t, x) }
 	a := agente.New(cfg, f, agente.Opcoes{Versao: versao, SO: runtime.GOOS, NomeDoPC: host, Avisar: avisar, Log: log})
 	go a.Run(ctx)
+	// P1: o computador não dorme enquanto o programa roda (a tela pode apagar).
+	if err := energia.Impedir(ctx); err != nil {
+		log.Warn("repouso: não consegui impedir", "erro", err)
+		a.SemSono(false, err)
+	} else {
+		a.SemSono(true, nil)
+	}
 
 	// Primeira vez: liga "abrir com o sistema" (a pessoa desliga na janela).
 	c := cfg.Get()

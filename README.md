@@ -84,7 +84,7 @@ bandeja: *Abrir*, *Imprimir teste* (Caixa/Frente), *Fechar o programa*.
   `setores.frente`/`setores.cozinha` e os campos antigos continuam gravados
   em espelho (dá pra voltar pra v1 sem perder a escolha).
 - O status continua mandando `front_printer`/`kitchen_printer`; a v2 soma
-  `setores` (parcial, `null` apaga) e `caps: ["setores","reserva","procurar"]`.
+  `setores` (parcial, `null` apaga) e `caps: ["setores","reserva","procurar","saude","cancel"]`.
 - Servidor sem setores (v1) = o programa não mexe nos vínculos locais.
 - Programa v1 ignora o evento `config` e só recebe `frente`/`cozinha`; atualiza
   sozinho pro v2 pelo releases/latest.

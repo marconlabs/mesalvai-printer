@@ -39,6 +39,11 @@ type Estado struct {
 	UltimoErro      string            `json:"ultimo_erro,omitempty"`
 	Impressos       int               `json:"impressos"`
 	Versao          string            `json:"versao"`
+	// Saude: estado de cada setor que tem impressora (P2/P4), por chave.
+	Saude map[string]api.SaudeSetor `json:"saude"`
+	// SemSono: o programa impede o repouso deste computador (P1).
+	SemSono     bool   `json:"sem_sono"`
+	SemSonoErro string `json:"sem_sono_erro,omitempty"`
 }
 
 // SetorEstado é uma linha da seção "Setores" da janela.
@@ -58,7 +63,11 @@ type Opcoes struct {
 	Imprimir func(ctx context.Context, nome string, dados []byte) error
 	Listar   func() ([]impressora.Info, error)
 	// Procurar: varredura da rede (botão "Procurar impressoras").
-	Procurar   func(ctx context.Context) []impressora.Info
+	Procurar func(ctx context.Context) []impressora.Info
+	// Ler: estado da impressora (papel, tampa, resposta). Nunca imprime.
+	Ler func(ctx context.Context, nome string) impressora.Leitura
+	// SaudeCada: de quanto em quanto tempo relê as impressoras dos setores.
+	SaudeCada  time.Duration
 	BackoffMin time.Duration
 	BackoffMax time.Duration
 	// Silencio: sem ping por tanto tempo = conexão morta.
@@ -88,6 +97,10 @@ type Agente struct {
 	pendentes bool
 	// naReserva: principais fora que já ganharam balão (só o laço da fila mexe).
 	naReserva map[string]bool
+	// leituras: estado por impressora; foraDesde: setor → desde quando não imprime.
+	leituras  map[string]*leitura
+	foraDesde map[string]time.Time
+	agora     func() time.Time
 }
 
 // New monta o agente.
@@ -100,6 +113,12 @@ func New(cfg *config.Store, f *fila.Fila, op Opcoes) *Agente {
 	}
 	if op.Procurar == nil {
 		op.Procurar = impressora.ProcurarNaRede
+	}
+	if op.Ler == nil {
+		op.Ler = impressora.Ler
+	}
+	if op.SaudeCada == 0 {
+		op.SaudeCada = 30 * time.Second
 	}
 	if op.BackoffMin == 0 {
 		op.BackoffMin = time.Second
@@ -120,7 +139,7 @@ func New(cfg *config.Store, f *fila.Fila, op Opcoes) *Agente {
 		op.Avisar = func(string, string) {}
 	}
 	c := cfg.Get()
-	a := &Agente{cfg: cfg, fila: f, op: op, acorda: make(chan struct{}, 1), naReserva: map[string]bool{}}
+	a := &Agente{cfg: cfg, fila: f, op: op, acorda: make(chan struct{}, 1), naReserva: map[string]bool{}, leituras: map[string]*leitura{}, foraDesde: map[string]time.Time{}, agora: time.Now}
 	// Impressoras de rede achadas antes (Procurar) voltam pra lista.
 	for _, r := range cfg.Get().Rede {
 		a.rede = append(a.rede, impressora.Info{Nome: r.Nome, Rotulo: r.Rotulo})
@@ -164,6 +183,7 @@ func (a *Agente) client() *api.Client {
 func (a *Agente) Run(ctx context.Context) {
 	go a.laçoDaFila(ctx)
 	go a.laçoDasImpressoras(ctx)
+	go a.laçoDaSaude(ctx)
 	for ctx.Err() == nil {
 		if a.cfg.Get().Chave == "" {
 			if err := a.parear(ctx); err != nil && ctx.Err() == nil {
@@ -304,6 +324,8 @@ func (a *Agente) umStream(ctx context.Context) error {
 				go a.buscarConfig(ctx)
 			case "job":
 				a.receber(*ev.Job)
+			case "cancel":
+				a.cancelar(ev.Cancelar)
 			case "revoked":
 				return api.ErrNaoAutorizado
 			}
@@ -431,7 +453,7 @@ func (a *Agente) drenar(ctx context.Context) {
 		}
 		errP, jaCaiu := foraNaPassada[principal]
 		if !jaCaiu {
-			errP = a.imprimirVias(ctx, principal, papel, it.Copies)
+			errP = a.tentar(ctx, principal, papel, it.Copies)
 		}
 		if errP == nil {
 			delete(a.naReserva, principal)
@@ -441,7 +463,7 @@ func (a *Agente) drenar(ctx context.Context) {
 		if reserva != "" && reserva != principal {
 			setor := nomeDoSetor(c, it)
 			papelR := append(CabecalhoReserva(setor, errP.Error()), dados...)
-			errR := a.imprimirVias(ctx, reserva, papelR, it.Copies)
+			errR := a.tentar(ctx, reserva, papelR, it.Copies)
 			if errR == nil {
 				foraNaPassada[principal] = errP
 				if !a.naReserva[principal] {
@@ -458,7 +480,14 @@ func (a *Agente) drenar(ctx context.Context) {
 		}
 		_ = a.fila.Falhou(it.ID, errP.Error())
 		if it.Tentativas == 0 {
-			a.op.Avisar("Impressora não respondeu", fmt.Sprintf("%s: %s. Vou tentar de novo sozinho.", it.Title, errP.Error()))
+			titulo := "Impressora não respondeu"
+			switch {
+			case errors.Is(errP, impressora.ErrSemPapel):
+				titulo = "Impressora sem papel"
+			case errors.Is(errP, impressora.ErrTampaAberta):
+				titulo = "Impressora com a tampa aberta"
+			}
+			a.op.Avisar(titulo, fmt.Sprintf("%s: %s. Vou tentar de novo sozinho.", it.Title, errP.Error()))
 		}
 		a.mudar(func(e *Estado) { e.UltimoErro = "Impressora " + principal + ": " + errP.Error() })
 		_ = a.enviarStatus(ctx, ptr(errP.Error()), nil)
@@ -529,6 +558,11 @@ func (a *Agente) enviarStatus(ctx context.Context, erro *string, setores map[str
 	}
 	c := a.cfg.Get()
 	st := api.Status{Printers: nomes, FrontPrinter: ptr(c.Frente), KitchenPrinter: ptr(c.Cozinha), LastError: erro, Setores: setores, Caps: api.Caps}
+	if e := a.Estado(); e.Saude != nil {
+		st.Saude = e.Saude
+		sono := e.SemSono
+		st.SemSono = &sono
+	}
 	if erro == nil {
 		vazio := ""
 		st.LastError = &vazio
@@ -709,7 +743,14 @@ func (a *Agente) TestePapel(ctx context.Context, setor string) error {
 	if nome == "" {
 		return impressora.ErrSemImpressora
 	}
-	return a.op.Imprimir(ctx, nome, PapelDeTesteLocal(c.NomeDoSetor(setor)))
+	if err := a.op.Imprimir(ctx, nome, PapelDeTesteLocal(c.NomeDoSetor(setor))); err != nil {
+		a.marcarFalha(nome, err)
+		return err
+	}
+	a.marcarOk(nome)
+	a.registrarTeste(setor)
+	_ = a.enviarStatus(ctx, nil, nil)
+	return nil
 }
 
 func esperar(ctx context.Context, d time.Duration) {

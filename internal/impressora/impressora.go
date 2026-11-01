@@ -48,6 +48,10 @@ func imprimirRede(ctx context.Context, host string, dados []byte) error {
 	if !strings.Contains(host, ":") {
 		host += ":9100"
 	}
+	// Uma conexão por vez por impressora (a leitura de estado usa a mesma).
+	tranca := trancaDe(host)
+	tranca.Lock()
+	defer tranca.Unlock()
 	d := net.Dialer{Timeout: 5 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", host)
 	if err != nil {

@@ -35,6 +35,16 @@
   @media (max-width:480px) { .grade { grid-template-columns:minmax(0,1fr) } }
   .setor button { width:100%; margin-top:10px }
   .procurar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:12px }
+  .saude { font-weight:600; font-size:13px; margin:4px 0 0 }
+  .saude.ok { color:var(--ok) } .saude.warn { color:var(--warn) } .saude.bad { color:var(--bad) }
+  .ipmudou { background:var(--bg); border-radius:10px; padding:10px 12px; margin-top:8px; font-size:13px }
+  .ipmudou button { margin-top:8px; width:100% }
+  .passos { list-style:none; margin:0; padding:0 }
+  .passos li { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--line) }
+  .passos li:first-child { border-top:0 }
+  .marca { flex:none; width:24px; height:24px; border-radius:50%; border:2px solid var(--muted); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; margin-top:2px }
+  .marca.ok { background:var(--ok); border-color:var(--ok); color:#fff }
+  .passos b { display:block } .passos .botoes { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px }
 </style>
 </head>
 <body>
@@ -54,6 +64,11 @@
     <div class="status"><span class="dot" id="dot"></span> <span id="loja"></span> <span class="dica" id="conexao"></span></div>
     <p class="dica" id="resumo"></p>
     <p class="erro hide" id="erro"></p>
+  </section>
+
+  <section class="card hide" id="instalacao">
+    <h2>Para não falhar na hora do pedido</h2>
+    <ul class="passos" id="passos"></ul>
   </section>
 
   <section class="card hide" id="impressoras">
@@ -114,17 +129,65 @@ function montarSetores(setores) {
     div.innerHTML = `<div class="setor-topo"><span class="setor-nome"></span><span class="dica"></span></div>
       <div class="grade"><div><label for="${id}-i">Impressora</label><select id="${id}-i" class="imp"></select></div>
       <div><label for="${id}-r">Reserva (opcional)</label><select id="${id}-r" class="res"></select></div></div>
+      <p class="saude hide" role="status"></p>
+      <div class="ipmudou hide"><b>O IP desta impressora pode ter mudado.</b> Roteador que reinicia troca o número. <button class="procurar-de-novo" type="button">Procurar de novo</button></div>
       <button class="teste"></button>`;
     div.querySelector('.setor-nome').textContent = nome;
     div.querySelector('.dica').textContent = DICA[s.key] || (s.tipo === 'praca' ? 'Praça do salão' : '');
     div.querySelector('.teste').textContent = 'Teste ' + nome.toUpperCase();
     const salvar = () => post('/setor', { key: s.key, impressora: div.querySelector('.imp').value, reserva: div.querySelector('.res').value })
       .then(() => { aviso(true); tick(); }).catch((e) => aviso(false, 'Não salvou: ' + e.message));
+    div.querySelector('.procurar-de-novo').onclick = () => $('procurar').click();
     div.querySelector('.imp').onchange = salvar; div.querySelector('.res').onchange = salvar;
     div.querySelector('.teste').onclick = (ev) => { const b = ev.currentTarget; b.disabled = true;
       post('/teste', { setor: s.key }).then(() => aviso(true, `Teste ${nome.toUpperCase()} enviado: confira o papel.`)).catch((e) => aviso(false, `Teste ${nome.toUpperCase()} não saiu: ${e.message}`)).finally(() => b.disabled = false); };
     box.append(div);
   }
+}
+const SITUACAO = { pronta: 'Pronta', sem_papel: 'Sem papel', tampa_aberta: 'Tampa aberta', sem_resposta: 'Não responde' };
+function minutos(s) { return s < 60 ? `${s} s` : `${Math.round(s / 60)} min`; }
+function pintarSaude(div, sh) {
+  const p = div.querySelector('.saude'), ip = div.querySelector('.ipmudou');
+  if (!sh) { p.classList.add('hide'); ip.classList.add('hide'); return; }
+  let t = SITUACAO[sh.estado] || sh.estado, cls = sh.estado === 'pronta' ? 'ok' : (sh.imprime ? 'warn' : 'bad');
+  if (sh.estado === 'pronta' && !sh.lido) t = 'Alcançável (esta impressora não conta papel nem tampa)';
+  else if (sh.estado === 'sem_resposta' && sh.detalhe) t = sh.detalhe.charAt(0).toUpperCase() + sh.detalhe.slice(1);
+  if (sh.na_reserva) t += ' · saindo na reserva';
+  else if (!sh.imprime && sh.fora_ha_s) t += ` · há ${minutos(sh.fora_ha_s)}`;
+  if (sh.degradado) t += ' · o painel no navegador assumiu este setor';
+  p.textContent = t; p.className = 'saude ' + cls;
+  ip.classList.toggle('hide', !sh.ip_mudou);
+}
+function passo(ok, titulo, dica, botoes) {
+  const li = document.createElement('li');
+  const m = document.createElement('span'); m.className = 'marca' + (ok ? ' ok' : ''); m.textContent = ok ? '✓' : '';
+  const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = titulo; d.append(b);
+  if (dica) { const x = document.createElement('span'); x.className = 'dica'; x.textContent = dica; d.append(x); }
+  if (botoes && botoes.length) { const r = document.createElement('div'); r.className = 'botoes'; botoes.forEach((x) => r.append(x)); d.append(r); }
+  li.append(m, d); return li;
+}
+function botaoTeste(s) {
+  const b = document.createElement('button'); b.textContent = 'Imprimir teste ' + (s.nome || s.key).toUpperCase();
+  b.onclick = () => { b.disabled = true; post('/teste', { setor: s.key }).then(() => aviso(true, `Teste ${(s.nome || s.key).toUpperCase()} enviado: confira o papel.`)).catch((e) => aviso(false, `Teste não saiu: ${e.message}`)).finally(() => { b.disabled = false; tick(); }); };
+  return b;
+}
+function montarPassos(e) {
+  const saude = e.saude || {}, setores = e.setores || [];
+  const frente = setores.find((s) => s.key === 'frente');
+  const okImp = !!(frente && frente.impressora);
+  const comImp = setores.filter((s) => saude[s.key]);
+  const semTeste = comImp.filter((s) => !saude[s.key].teste_em && (s.impressora || s.key === 'frente'));
+  const okTeste = okImp && semTeste.length === 0;
+  const okSono = !!e.sem_sono;
+  $('instalacao').classList.toggle('hide', !e.vinculado || (okSono && okImp && okTeste));
+  const ul = $('passos'); ul.innerHTML = '';
+  ul.append(passo(true, 'Vinculado à loja', ''));
+  ul.append(passo(okSono, okSono ? 'Este computador não vai dormir enquanto o programa estiver aberto' : 'Deixe este computador acordado',
+    okSono ? 'Notebook: deixe na tomada e com a tampa aberta (fechar a tampa ainda suspende).' : (e.sem_sono_erro ? `O sistema não deixou: ${e.sem_sono_erro}. ` : '') + 'Ligue na tomada e, nas configurações de energia, escolha "nunca suspender".'));
+  ul.append(passo(okImp, okImp ? 'Impressora da frente escolhida' : 'Escolha a impressora da frente',
+    'Rede é a melhor: reserve o IP da impressora no roteador, senão ele pode mudar. USB: instale o driver do fabricante antes.'));
+  ul.append(passo(okTeste, okTeste ? 'Teste impresso em cada setor' : 'Imprima o teste de cada setor',
+    okTeste ? '' : 'Sem o teste a loja fica com "falta o teste" no painel. A linha 1234567890 tem que chegar até a borda do papel.', okImp ? semTeste.map(botaoTeste) : []));
 }
 function ha(iso) { if (!iso || iso.startsWith('0001')) return ''; const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? 'agora' : s < 3600 ? `há ${Math.round(s/60)} min` : `há ${Math.round(s/3600)} h`; }
 async function tick() {
@@ -153,6 +216,11 @@ async function tick() {
       opcoes(div.querySelector('.imp'), lista, s.impressora, s.key === 'frente' ? '— escolha —' : '— sem impressora (sai na da frente) —');
       opcoes(div.querySelector('.res'), lista, s.reserva, '— sem reserva —');
     }
+    for (const s of setores) {
+      const div = [...document.querySelectorAll('.setor')].find((x) => x.dataset.key === s.key);
+      if (div) pintarSaude(div, (e.saude || {})[s.key]);
+    }
+    montarPassos(e);
     const p = $('procurar'); p.disabled = !!e.procurando; p.textContent = e.procurando ? 'Procurando…' : 'Procurar impressoras';
   } catch { $('conexao').textContent = '· o programa fechou?'; }
 }

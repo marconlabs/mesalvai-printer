@@ -77,6 +77,73 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
   sem setor vinculado e mesmo que não respondam na próxima procura (podem
   estar desligadas).
 
+## Computador acordado (P1)
+
+- O programa pede ao sistema para **não entrar em repouso** enquanto roda:
+  Windows `SetThreadExecutionState(CONTINUOUS|SYSTEM_REQUIRED)`; Mac
+  `caffeinate -i -s -w <pid>` (`internal/energia`). A tela pode apagar.
+- **Não vale para tampa fechada**: fechar o notebook ainda suspende (é do
+  hardware). A janela diz "deixe na tomada e com a tampa aberta".
+- Se o sistema não deixar, a janela mostra o motivo e o status manda
+  `sem_sono: false`.
+
+## Saúde da impressora (P2)
+
+- A cada **30 s** (e antes de cada papel) o programa lê o estado das
+  impressoras de cada setor, principal e reserva. **Nunca imprime** para ler.
+- Rede (TCP 9100): ESC/POS em tempo real, `DLE EOT 1`, `2` e `4`. Só vale
+  resposta com os bits fixos certos (`b & 0x93 == 0x12`); lixo conta como "não
+  informa". Impressora que abre a porta e não responde fica **pronta, não
+  lida** ("alcançável, não conta papel nem tampa"): muita impressora barata é
+  assim. Uma conexão por vez por impressora: ler e imprimir nunca disputam.
+- USB/sistema: Windows lê as marcas da fila do spooler (`GetPrinter`: porta
+  da tampa, sem papel, fora de linha); Mac lê `lpstat -l -p` (`cover-open`,
+  `media-empty`, `disabled`). **Só vale o que o driver conta**: com a USB
+  desligada o Windows pode continuar dizendo "pronta" (ainda sem teste em loja).
+- Situações: `pronta`, `sem_papel`, `tampa_aberta`, `sem_resposta`. "Quase
+  acabando" não bloqueia. Falha de rede **avulsa não conta**: `sem_resposta`
+  só depois de 2 leituras seguidas (~1 min) ou de um papel que falhou.
+- Antes de mandar um papel: se a impressora diz `sem_papel` ou `tampa_aberta`
+  (leitura de verdade), o papel **nem é mandado** (iria para o buffer e nunca
+  sairia): vira o erro "sem papel"/"tampa aberta", a reserva assume e o
+  balão diz o motivo.
+- O status traz `saude` por setor com impressora: `estado`, `lido`, `detalhe`,
+  `impressora`, `imprime` (principal OU reserva pronta), `na_reserva`,
+  `fora_ha_s`, `degradado`, `ip_mudou`, `teste_em`; e `sem_sono`. Manda quando
+  muda e, enquanto algum setor não imprime, a cada 30 s.
+
+## "IP mudou?" (P3)
+
+- Impressora **de rede** sem resposta (2 leituras) marca `ip_mudou`: a janela
+  pergunta "O IP desta impressora pode ter mudado" com o botão **Procurar de
+  novo** (é o mesmo "Procurar impressoras": só quando a pessoa toca, nunca
+  imprime). O programa **não troca o IP sozinho**: não há como saber que a
+  nova é a mesma impressora.
+
+## Navegador assume o setor (P4)
+
+- Setor sem conseguir imprimir (principal **e** reserva fora) há **2 min**
+  (`LimiteDegradar`) manda `degradado: true`. A API deixa de contar o setor
+  como "imprime pelo computador": o navegador volta a imprimir esse setor.
+- A API manda `event: cancel` com `{job_ids}` dos papéis que o navegador
+  assumiu: o programa **tira da fila local sem dar ack** (quem imprimiu foi o
+  navegador; evita papel em dobro). Papel que já saiu não volta.
+- Voltou (principal ou reserva pronta): `imprime: true`, o contador zera e o
+  setor volta a ser do computador.
+- Computador sem `caps: saude, cancel` (versão antiga) nunca degrada: o
+  servidor só aplica P4 a quem declarou que entende.
+
+## Instalação e teste obrigatório (P5)
+
+- A janela mostra "Para não falhar na hora do pedido" até estar tudo certo:
+  vinculado, computador acordado (P1), impressora da frente escolhida e
+  **"Imprimir teste" feito em cada setor com impressora**.
+- O teste que **saiu** grava a hora em `config.json` (`testes`) e sobe como
+  `teste_em`; teste que falhou não conta. Setor sem impressora própria usa o
+  teste da frente. Sem teste = o painel mostra "falta o teste".
+- Dica na tela: rede é o melhor; **reserve o IP no roteador**; USB pede o
+  driver do fabricante antes.
+
 ## v1 × v2
 
 | | v1 | v2 |
@@ -86,7 +153,7 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
 | Procurar rede | não (só digitar) | botão "Procurar impressoras" |
 | Impressora fora | segura a fila inteira | segura só os papéis dela |
 | Evento `config` | ignora | busca o config de novo |
-| `caps` no status | — | `["setores","reserva","procurar"]` |
+| `caps` no status | — | `["setores","reserva","procurar","saude","cancel"]` |
 
 O servidor manda pra um computador sem `caps` (v1) só `frente`/`cozinha`. O
 programa v1 atualiza sozinho pra v2 (releases/latest): confere 1 min depois de

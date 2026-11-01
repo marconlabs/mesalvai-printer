@@ -41,11 +41,14 @@ type Config struct {
 	SetoresLista []SetorInfo `json:"setores_lista,omitempty"`
 	// Rede: impressoras de rede achadas em "Procurar impressoras" (ficam na
 	// lista depois de reiniciar o programa, mesmo sem setor vinculado).
-	Rede           []RedeAchada `json:"rede,omitempty"`
-	AutoStart      bool         `json:"auto_start"`
-	AutoUpdate     bool         `json:"auto_update"`
-	PortaUI        int          `json:"porta_ui,omitempty"`
-	AbrirAoIniciar bool         `json:"abrir_ao_iniciar"`
+	Rede []RedeAchada `json:"rede,omitempty"`
+	// Testes: chave do setor → quando saiu o último "Imprimir teste" daqui
+	// (RFC 3339). Computador sem teste fica com "falta o teste" no painel (P5).
+	Testes         map[string]string `json:"testes,omitempty"`
+	AutoStart      bool              `json:"auto_start"`
+	AutoUpdate     bool              `json:"auto_update"`
+	PortaUI        int               `json:"porta_ui,omitempty"`
+	AbrirAoIniciar bool              `json:"abrir_ao_iniciar"`
 }
 
 // SetorLocal é o vínculo de um setor neste computador.
@@ -254,6 +257,7 @@ func (s *Store) Get() Config {
 	}
 	c.SetoresLista = append([]SetorInfo(nil), s.c.SetoresLista...)
 	c.Rede = append([]RedeAchada(nil), s.c.Rede...)
+	c.Testes = copiarTestes(s.c.Testes)
 	return c
 }
 
@@ -268,6 +272,7 @@ func (s *Store) Update(f func(*Config)) error {
 	for k, v := range s.c.Setores {
 		c.Setores[k] = v
 	}
+	c.Testes = copiarTestes(s.c.Testes)
 	f(&c)
 	migrar(&antes, &c)
 	s.c = c
@@ -284,4 +289,15 @@ func (s *Store) salvar() error {
 		return err
 	}
 	return os.Rename(tmp, s.path)
+}
+
+func copiarTestes(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
