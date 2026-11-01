@@ -206,6 +206,7 @@ func (a *Agente) recalcularSaude() (mudou, fora bool) {
 			teste = c.Testes["frente"]
 		}
 		sh.TesteEm = teste
+		sh.LarguraDetectada = a.larguraDe(principal)
 		a.mu.Lock()
 		if sh.Imprime {
 			delete(a.foraDesde, s.Key)
@@ -273,4 +274,66 @@ func (a *Agente) registrarTeste(setor string) {
 		c.Testes[setor] = a.agora().UTC().Format(time.RFC3339)
 	})
 	a.recalcularSaude()
+}
+
+// larguraLida é o cache da largura que o driver informa (ler custa um
+// processo no Mac, então não se repete a cada 30 s).
+type larguraLida struct {
+	MM     int
+	Quando time.Time
+}
+
+// RevalidarLargura: de quanto em quanto tempo relê a largura de uma impressora.
+const RevalidarLargura = 10 * time.Minute
+
+// larguraDe devolve a última largura lida (0 = o driver não disse).
+func (a *Agente) larguraDe(nome string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.larguras[nome].MM
+}
+
+// laçoDaLargura lê a largura do papel no driver sem atrasar a leitura de
+// saúde (no Mac cada leitura é um processo, com teto de 5 s). Largura nova
+// refaz a saúde e sobe no status.
+func (a *Agente) laçoDaLargura(ctx context.Context) {
+	for {
+		if a.cfg.Get().Chave != "" && a.atualizarLarguras(ctx) {
+			a.recalcularSaude()
+			_ = a.enviarStatus(ctx, nil, nil)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(a.op.SaudeCada):
+		}
+	}
+}
+
+// atualizarLarguras lê a largura do papel no driver das impressoras dos
+// setores que ainda não foram lidas (ou cuja leitura é velha). Impressora de
+// rede não tem driver aqui: fica 0 e quem sugere é o painel (nome/modelo).
+// Devolve se alguma largura mudou.
+func (a *Agente) atualizarLarguras(ctx context.Context) (mudou bool) {
+	for _, n := range a.impressorasDosSetores() {
+		if ehRede(n) {
+			continue
+		}
+		a.mu.Lock()
+		l, tem := a.larguras[n]
+		a.mu.Unlock()
+		if tem && a.agora().Sub(l.Quando) < RevalidarLargura {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		mm := a.op.Largura(cctx, n)
+		cancel()
+		a.mu.Lock()
+		a.larguras[n] = larguraLida{MM: mm, Quando: a.agora()}
+		a.mu.Unlock()
+		if !tem || l.MM != mm {
+			mudou = true
+		}
+	}
+	return mudou
 }

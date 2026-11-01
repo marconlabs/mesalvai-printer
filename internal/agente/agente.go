@@ -44,6 +44,24 @@ type Estado struct {
 	// SemSono: o programa impede o repouso deste computador (P1).
 	SemSono     bool   `json:"sem_sono"`
 	SemSonoErro string `json:"sem_sono_erro,omitempty"`
+	// Atualizacao: última conferência de versão nova (vazio = ainda não conferiu).
+	Atualizacao Atualizacao `json:"atualizacao"`
+}
+
+// Atualizacao é o resultado da última conferência de versão nova, pra página
+// mostrar "Versão v2.0.1 · conferida há 2 h" e o suporte saber por que uma
+// loja não atualizou.
+type Atualizacao struct {
+	// Ligada: a atualização sozinha está ligada neste computador.
+	Ligada bool `json:"ligada"`
+	// Quando: hora da última conferência (zero = ainda não conferiu).
+	Quando time.Time `json:"quando,omitempty"`
+	// Resultado: atual | instalada | disponivel | erro.
+	Resultado string `json:"resultado,omitempty"`
+	// Tag: versão achada (instalada/disponível).
+	Tag string `json:"tag,omitempty"`
+	// Erro: motivo curto, em português, quando Resultado = erro.
+	Erro string `json:"erro,omitempty"`
 }
 
 // SetorEstado é uma linha da seção "Setores" da janela.
@@ -66,6 +84,8 @@ type Opcoes struct {
 	Procurar func(ctx context.Context) []impressora.Info
 	// Ler: estado da impressora (papel, tampa, resposta). Nunca imprime.
 	Ler func(ctx context.Context, nome string) impressora.Leitura
+	// Largura: largura do papel (58/80) que o driver informa; 0 = não sabe.
+	Largura func(ctx context.Context, nome string) int
 	// SaudeCada: de quanto em quanto tempo relê as impressoras dos setores.
 	SaudeCada  time.Duration
 	BackoffMin time.Duration
@@ -89,6 +109,10 @@ type Agente struct {
 	ouvintes     []func(Estado)
 	acorda       chan struct{}
 	cancelStream context.CancelFunc
+	// cancelParear: encerra a espera do código atual ("Gerar outro código").
+	cancelParear context.CancelFunc
+	// larguras: largura do papel que o driver informa, por impressora (cache).
+	larguras map[string]larguraLida
 	// rede: impressoras achadas na última varredura (somam-se às do sistema).
 	rede []impressora.Info
 	// sincronia: um de cada vez entre buscar o config e gravar vínculo.
@@ -117,6 +141,9 @@ func New(cfg *config.Store, f *fila.Fila, op Opcoes) *Agente {
 	if op.Ler == nil {
 		op.Ler = impressora.Ler
 	}
+	if op.Largura == nil {
+		op.Largura = impressora.LerLargura
+	}
 	if op.SaudeCada == 0 {
 		op.SaudeCada = 30 * time.Second
 	}
@@ -139,7 +166,7 @@ func New(cfg *config.Store, f *fila.Fila, op Opcoes) *Agente {
 		op.Avisar = func(string, string) {}
 	}
 	c := cfg.Get()
-	a := &Agente{cfg: cfg, fila: f, op: op, acorda: make(chan struct{}, 1), naReserva: map[string]bool{}, leituras: map[string]*leitura{}, foraDesde: map[string]time.Time{}, agora: time.Now}
+	a := &Agente{cfg: cfg, fila: f, op: op, acorda: make(chan struct{}, 1), naReserva: map[string]bool{}, leituras: map[string]*leitura{}, larguras: map[string]larguraLida{}, foraDesde: map[string]time.Time{}, agora: time.Now}
 	// Impressoras de rede achadas antes (Procurar) voltam pra lista.
 	for _, r := range cfg.Get().Rede {
 		a.rede = append(a.rede, impressora.Info{Nome: r.Nome, Rotulo: r.Rotulo})
@@ -184,6 +211,7 @@ func (a *Agente) Run(ctx context.Context) {
 	go a.laçoDaFila(ctx)
 	go a.laçoDasImpressoras(ctx)
 	go a.laçoDaSaude(ctx)
+	go a.laçoDaLargura(ctx)
 	for ctx.Err() == nil {
 		if a.cfg.Get().Chave == "" {
 			if err := a.parear(ctx); err != nil && ctx.Err() == nil {
@@ -214,25 +242,37 @@ func (a *Agente) Desvincular() {
 // ── pareamento ──────────────────────────────────────────────────────────────
 
 func (a *Agente) parear(ctx context.Context) error {
+	// pctx é só desta espera: "Gerar outro código" cancela ele e o Run volta
+	// aqui pedindo um código novo.
+	pctx, cancelaEspera := context.WithCancel(ctx)
+	a.mu.Lock()
+	a.cancelParear = cancelaEspera
+	a.mu.Unlock()
+	defer cancelaEspera()
+	// Pedido de outro código: sem erro, o laço do Run chama de novo.
+	trocou := func() bool { return ctx.Err() == nil && pctx.Err() != nil }
 	cl := a.client()
-	ps, err := cl.PairStart(ctx, a.op.NomeDoPC)
+	ps, err := cl.PairStart(pctx, a.op.NomeDoPC)
 	if err != nil {
+		if trocou() {
+			return nil
+		}
 		return err
 	}
 	exp, _ := time.Parse(time.RFC3339, ps.ExpiresAt)
 	a.mudar(func(e *Estado) { e.Codigo, e.CodigoExpira, e.UltimoErro = ps.Code, exp, "" })
 	a.op.Log.Info("código de pareamento", "code", ps.Code)
-	for ctx.Err() == nil {
-		w, err := cl.PairWait(ctx, ps.PollToken)
+	for pctx.Err() == nil {
+		w, err := cl.PairWait(pctx, ps.PollToken)
 		if err != nil {
 			if errors.Is(err, api.ErrExpirado) {
 				a.mudar(func(e *Estado) { e.Codigo = "" })
 				return nil // volta e gera outro
 			}
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if pctx.Err() != nil {
+				break
 			}
-			esperar(ctx, 2*time.Second)
+			esperar(pctx, 2*time.Second)
 			continue
 		}
 		switch w.Status {
@@ -252,7 +292,27 @@ func (a *Agente) parear(ctx context.Context) error {
 			return nil
 		}
 	}
+	if trocou() {
+		return nil
+	}
 	return ctx.Err()
+}
+
+// NovoCodigo descarta o código que está na tela e pede outro ("Gerar outro
+// código"). Só faz sentido enquanto o computador não está vinculado.
+func (a *Agente) NovoCodigo() error {
+	if a.cfg.Get().Chave != "" {
+		return errors.New("este computador já está vinculado à loja")
+	}
+	a.mu.Lock()
+	cancela := a.cancelParear
+	a.mu.Unlock()
+	a.mudar(func(e *Estado) { e.Codigo, e.UltimoErro = "", "" })
+	a.op.Log.Info("código novo pedido pela pessoa")
+	if cancela != nil {
+		cancela()
+	}
+	return nil
 }
 
 // ── stream ──────────────────────────────────────────────────────────────────
@@ -326,6 +386,8 @@ func (a *Agente) umStream(ctx context.Context) error {
 				a.receber(*ev.Job)
 			case "cancel":
 				a.cancelar(ev.Cancelar)
+			case "procurar":
+				go a.procurarAPedido(ctx, ev.Procurar)
 			case "revoked":
 				return api.ErrNaoAutorizado
 			}
@@ -692,6 +754,37 @@ func (a *Agente) Procurar(ctx context.Context) ([]impressora.Info, error) {
 	a.op.Log.Info("procurar impressoras", "achou", len(achou))
 	_ = a.enviarStatus(ctx, nil, nil)
 	return achou, nil
+}
+
+// procurarAPedido atende o evento `procurar` do painel (botão "Procurar
+// impressoras" na tela da loja): faz a mesma varredura do botão do programa e
+// manda o resultado no status. Evento de outro computador é ignorado.
+func (a *Agente) procurarAPedido(ctx context.Context, p *api.ComandoProcurar) {
+	if p == nil {
+		p = &api.ComandoProcurar{}
+	}
+	if meu := a.cfg.Get().AgenteID; p.AgenteID != "" && meu != "" && p.AgenteID != meu {
+		return
+	}
+	a.op.Log.Info("procurar impressoras (pedido do painel)", "setor", p.Setor)
+	if _, err := a.Procurar(ctx); err != nil {
+		a.op.Log.Info("procurar do painel ignorado", "motivo", err.Error())
+	}
+}
+
+// RegistrarConferencia guarda o resultado da última conferência de versão
+// nova (a janela mostra "conferida há N h") e escreve no log.
+func (a *Agente) RegistrarConferencia(u Atualizacao) {
+	if u.Quando.IsZero() {
+		u.Quando = a.agora()
+	}
+	a.op.Log.Info("atualizacao", "resultado", u.Resultado, "versao_achada", u.Tag, "erro", u.Erro)
+	a.mudar(func(e *Estado) { u.Ligada = e.Atualizacao.Ligada; e.Atualizacao = u })
+}
+
+// AtualizacaoLigada diz à janela se a atualização sozinha está ligada.
+func (a *Agente) AtualizacaoLigada(ligada bool) {
+	a.mudar(func(e *Estado) { e.Atualizacao.Ligada = ligada })
 }
 
 // VincularSetor grava a impressora (e a reserva) de um setor neste computador

@@ -68,6 +68,11 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
 - Achou = entra na lista como "Rede 192.168.0.50" (`tcp://192.168.0.50:9100`)
   e vai no `printers` do status (o painel também pode escolher).
 - Também dá pra digitar `tcp://IP` (ou `tcp://IP:porta`) à mão.
+- **Pedido do painel**: o stream pode trazer o evento opcional
+  `event: procurar` (`data: {"agente_id"?, "setor"?}`, corpo pode vir vazio).
+  O programa faz a mesma varredura do botão e manda o resultado no `printers`
+  do status. `agente_id` de outro computador = ignora; servidor que nunca manda
+  o evento não muda nada; programa velho ignora o evento desconhecido.
 - A procura **só abre e fecha a conexão** na porta 9100: nunca manda bytes,
   então nada sai impresso durante a procura.
 - Teto de **20 s** por procura (várias placas de rede, VPN): o que respondeu
@@ -143,6 +148,45 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
   teste da frente. Sem teste = o painel mostra "falta o teste".
 - Dica na tela: rede é o melhor; **reserve o IP no roteador**; USB pede o
   driver do fabricante antes.
+
+## Largura do papel que o driver informa (F2)
+
+- Para cada impressora do sistema de um setor (USB com driver), o programa lê
+  o papel padrão do driver: Windows = `dmPaperWidth` do DEVMODE (décimos de mm;
+  se vazio, procura 58/80 no nome do driver); Mac/Linux = papel padrão (`*`)
+  em `lpoptions -p NOME -l`. 48–62 mm vale **58**, 70–90 mm vale **80**; folha
+  A4 ou etiqueta não conta (0).
+- Vai no status como `saude.<setor>.largura_detectada` (58 ou 80; ausente =
+  o driver não disse). Impressora de rede (`tcp://`) nunca informa: o painel
+  sugere pelo nome/modelo. **É só sugestão**: o programa nunca troca a largura
+  da loja; a pessoa confirma no papel de teste.
+- A leitura é repetida a cada 10 min por impressora (no Mac cada leitura é um
+  processo), num laço próprio que não atrasa a saúde.
+
+## Janela: vínculo, fechar, atualização e pasta fixa (F2)
+
+- **Código de vínculo**: botão **Copiar**, contagem "Digite no painel em 9:41" e
+  **Gerar outro código** (descarta o da tela e pede um novo à API; mesma
+  frase da API: "Esse código venceu. No programa, toque em Gerar outro código").
+  O código novo continua aparecendo sozinho quando vence.
+- **Fechar o programa** nunca é direto: a página mostra uma caixa própria
+  ("Fechar o Mesalvaí Printer?", **Cancelar** é o padrão, botão vermelho
+  "Fechar o programa"). O item da bandeja ("Fechar o programa…") abre a janela
+  já nessa caixa (`#fechar`). SIGTERM/Ctrl+C continuam fechando direto.
+- **Atualização**: cada conferência (1 min depois de abrir e a cada 6 h) e cada
+  falha vai pro log (`atualizacao resultado=atual|instalada|disponivel|erro`)
+  e pra janela: "Versão v2.1.0 · conferida há 2 h", ou o motivo da falha
+  ("sem resposta do GitHub", "checksum não confere", "o release novo ainda não
+  tem o arquivo deste sistema"). Com a atualização sozinha desligada a janela
+  diz isso.
+- **Pasta fixa (1ª abertura)**: se o programa roda de fora da pasta fixa
+  (Windows `%LocalAppData%\Mesalvai Printer`; Mac `/Applications`, ou
+  `~/Applications` se não der para escrever), a janela pergunta "Guardar o
+  programa em uma pasta fixa?". **Guardar** copia (Mac: o `.app` inteiro),
+  aponta o início automático para a cópia, encerra este processo e abre a cópia
+  na bandeja. **Agora não** grava `pasta_fixa: "recusada"` e nunca mais
+  pergunta. O arquivo baixado não é apagado. Build de desenvolvimento
+  (`v0.0.0-dev`) e Linux não perguntam.
 
 ## v1 × v2
 

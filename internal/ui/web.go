@@ -19,6 +19,7 @@ import (
 	"github.com/marconlabs/mesalvai-printer/internal/agente"
 	"github.com/marconlabs/mesalvai-printer/internal/autostart"
 	"github.com/marconlabs/mesalvai-printer/internal/config"
+	"github.com/marconlabs/mesalvai-printer/internal/instalar"
 )
 
 //go:embed pagina.html
@@ -31,6 +32,21 @@ type Web struct {
 	LogPath string
 	URL     string
 	Sair    func()
+	// Exe é o caminho deste programa em execução; Dev = build local (não
+	// pergunta da pasta fixa); Reabrir encerra este processo e abre a cópia.
+	Exe     string
+	Dev     bool
+	Reabrir func(novoExe string)
+}
+
+// pastaFixa diz à página se mostra a pergunta "Guardar o programa em uma pasta
+// fixa?" e pra onde iria.
+func (w *Web) pastaFixa() map[string]any {
+	if w.Dev || w.Cfg.Get().PastaFixa != "" {
+		return map[string]any{"pergunta": false}
+	}
+	destino, ok := instalar.Oferecer(w.Exe)
+	return map[string]any{"pergunta": ok, "destino": destino}
 }
 
 // Servir sobe em 127.0.0.1 na porta gravada (ou livre) e devolve a URL.
@@ -59,7 +75,7 @@ func (w *Web) Servir(ctx context.Context) (string, error) {
 	})
 	mux.HandleFunc("GET /estado", func(rw http.ResponseWriter, r *http.Request) {
 		e := w.Agente.Estado()
-		json_(rw, map[string]any{"estado": e, "auto_start": autostart.Ligado(), "api": w.Cfg.Get().API, "so": runtime.GOOS, "log": w.LogPath, "agora": time.Now()})
+		json_(rw, map[string]any{"estado": e, "auto_start": autostart.Ligado(), "api": w.Cfg.Get().API, "so": runtime.GOOS, "log": w.LogPath, "agora": time.Now(), "pasta_fixa": w.pastaFixa()})
 	})
 	mux.HandleFunc("POST /escolher", func(rw http.ResponseWriter, r *http.Request) {
 		var b struct{ Frente, Cozinha string }
@@ -104,6 +120,46 @@ func (w *Web) Servir(ctx context.Context) (string, error) {
 			return
 		}
 		json_(rw, map[string]any{"achadas": achou})
+	})
+	// "Gerar outro código": descarta o da tela e pede um novo (só sem vínculo).
+	mux.HandleFunc("POST /novo-codigo", func(rw http.ResponseWriter, r *http.Request) {
+		if err := w.Agente.NovoCodigo(); err != nil {
+			http.Error(rw, err.Error(), 409)
+			return
+		}
+		rw.WriteHeader(204)
+	})
+	// Primeira abertura: guardar o programa numa pasta fixa (ou "agora não").
+	mux.HandleFunc("POST /pasta-fixa", func(rw http.ResponseWriter, r *http.Request) {
+		var b struct{ Aceitar bool }
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		if !b.Aceitar {
+			_ = w.Cfg.Update(func(c *config.Config) { c.PastaFixa = "recusada" })
+			rw.WriteHeader(204)
+			return
+		}
+		pasta, ok := instalar.Oferecer(w.Exe)
+		if !ok || w.Dev {
+			http.Error(rw, "o programa já está numa pasta fixa", 409)
+			return
+		}
+		novo, err := instalar.Copiar(w.Exe, pasta)
+		if err != nil {
+			http.Error(rw, err.Error(), 500)
+			return
+		}
+		// O início automático passa a apontar para a cópia.
+		if w.Cfg.Get().AutoStart || autostart.Ligado() {
+			if err := autostart.LigarCom(novo); err != nil {
+				http.Error(rw, "copiei, mas não consegui trocar o início automático: "+err.Error(), 500)
+				return
+			}
+		}
+		_ = w.Cfg.Update(func(c *config.Config) { c.PastaFixa = "guardada" })
+		json_(rw, map[string]any{"destino": pasta})
+		if w.Reabrir != nil {
+			go w.Reabrir(novo)
+		}
 	})
 	mux.HandleFunc("POST /desvincular", func(rw http.ResponseWriter, r *http.Request) {
 		w.Agente.Desvincular()

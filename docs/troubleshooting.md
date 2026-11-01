@@ -111,3 +111,43 @@ O programa impede o repouso por **inatividade** (Windows/Mac), mas **fechar a
 tampa do notebook ainda suspende**. Deixe a tampa aberta e na tomada. Se a
 janela mostra "Deixe este computador acordado" com um erro, o sistema não
 deixou: nas configurações de energia escolha "nunca suspender".
+
+## O código de vínculo venceu ou digitei errado
+
+O programa mostra a contagem ("Digite no painel em 9:41"). Venceu, ou o painel
+disse "Esse código venceu / já foi usado": toque em **Gerar outro código** na
+janela (o código também troca sozinho quando vence). O botão **Copiar** evita
+errar as letras. Sem internet, o motivo aparece embaixo do código e o programa
+tenta de novo sozinho.
+
+## Cliquei em "Fechar o programa" na bandeja e abriu o navegador
+
+É de propósito: a bandeja não fecha sem perguntar, então abre a janela do
+programa já com a caixa "Fechar o Mesalvaí Printer?". Confirme ali ou toque em
+Cancelar. Fechar = os pedidos deixam de sair por este computador.
+
+## A loja não atualizou o Mesalvaí Printer
+
+Abra a janela: a primeira linha mostra "Versão X · conferida há N h" e, se a
+última conferência falhou, o motivo. O mesmo fica no log
+(`atualizacao resultado=erro erro=...`; abra pelo botão "Ver log"). Causas: sem
+acesso ao GitHub (firewall/proxy), release novo sem o arquivo do sistema ou com
+`checksum não confere` (o programa tenta de novo em 6 h). "Atualização sozinha
+desligada" = `auto_update` falso no `config.json`. Atualizou e continua na
+versão velha: a troca só vale no **próximo arranque**.
+
+## O programa não abre mais com o sistema (apagaram a pasta Downloads)
+
+Na primeira abertura a janela pergunta "Guardar o programa em uma pasta fixa?".
+Se foi respondido "Agora não", o início automático aponta para onde o arquivo
+foi baixado. Para guardar mesmo assim: apague `pasta_fixa` do `config.json`
+(fechando o programa antes) e abra de novo, ou copie o programa para
+`%LocalAppData%\Mesalvai Printer` (Mac: `/Applications`) e ligue "Abrir junto
+com o sistema" a partir da cópia.
+
+## O painel sugere 58 mm mas o papel é 80 (ou o contrário)
+
+A largura vista pelo driver (`largura_detectada`) é só sugestão. Driver
+genérico ("Generic / Text Only") não informa e fica sem sugestão; impressora de
+rede nunca informa. A largura que vale é a da loja: confirme no papel de teste
+(a linha 1234567890 tem que chegar até a borda).

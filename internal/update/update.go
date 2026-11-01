@@ -24,6 +24,9 @@ import (
 // Repo é o repositório dos releases.
 const Repo = "marconlabs/mesalvai-printer"
 
+// BaseAPI é a API do GitHub (variável só pra teste apontar pra um servidor falso).
+var BaseAPI = "https://api.github.com"
+
 // Release é o que importa do JSON do GitHub.
 type Release struct {
 	TagName string `json:"tag_name"`
@@ -48,7 +51,7 @@ func NomeDoBinario() string {
 // Ultima consulta o release mais novo.
 func Ultima(ctx context.Context, cl *http.Client) (Release, error) {
 	var r Release
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+Repo+"/releases/latest", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, BaseAPI+"/repos/"+Repo+"/releases/latest", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "mesalvai-printer")
 	res, err := cl.Do(req)
@@ -144,21 +147,52 @@ func hashEsperado(ctx context.Context, cl *http.Client, url, nome string) (strin
 	return "", fmt.Errorf("checksums.txt sem %s", nome)
 }
 
-// Verificar roda de tempos em tempos: nova versão → aplica e avisa (reinicia
-// no próximo arranque; `reiniciar` pode forçar).
-func Verificar(ctx context.Context, atual string, aplicar bool, avisar func(tag string)) {
+// Resultado de uma conferência de versão nova (vai pro log e pra janela:
+// "Versão v2.0.1 · conferida há 2 h").
+type Resultado struct {
+	// Estado: atual | instalada | disponivel | erro.
+	Estado string
+	// Tag: versão achada no release (vazio se nem chegou a consultar).
+	Tag string
+	// Erro: motivo curto em português (só quando Estado = erro).
+	Erro string
+}
+
+// Verificar confere o release mais novo: nova versão → aplica (se `aplicar`)
+// e avisa; o programa troca no próximo arranque. Sempre devolve o que
+// aconteceu, inclusive a falha (antes ficava muda e o suporte não sabia por
+// que a loja não atualizou).
+func Verificar(ctx context.Context, atual string, aplicar bool, avisar func(tag string)) Resultado {
 	cl := &http.Client{Timeout: 2 * time.Minute}
 	r, err := Ultima(ctx, cl)
-	if err != nil || !Nova(atual, r.TagName) {
-		return
+	if err != nil {
+		return Resultado{Estado: "erro", Erro: "sem resposta do GitHub: " + err.Error()}
+	}
+	if !Nova(atual, r.TagName) {
+		return Resultado{Estado: "atual", Tag: r.TagName}
 	}
 	if !aplicar {
 		avisar(r.TagName)
-		return
+		return Resultado{Estado: "disponivel", Tag: r.TagName}
 	}
-	if tag, err := Aplicar(ctx, cl, r); err == nil {
-		avisar(tag)
+	tag, err := Aplicar(ctx, cl, r)
+	if err != nil {
+		return Resultado{Estado: "erro", Tag: r.TagName, Erro: MotivoDaFalha(err)}
 	}
+	avisar(tag)
+	return Resultado{Estado: "instalada", Tag: tag}
+}
+
+// MotivoDaFalha traduz a falha de Aplicar numa frase curta pra janela e pro log.
+func MotivoDaFalha(err error) string {
+	m := err.Error()
+	switch {
+	case strings.Contains(m, "sem o binário") || strings.Contains(m, "sem checksums"):
+		return "o release novo ainda não tem o arquivo deste sistema"
+	case strings.Contains(m, "checksum"):
+		return "checksum não confere (download corrompido); tento de novo na próxima conferência"
+	}
+	return m
 }
 
 // Sha256 de um arquivo (usado pelo workflow local / testes).

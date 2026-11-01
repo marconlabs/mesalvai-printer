@@ -19,12 +19,8 @@ func plist() (string, error) {
 	return filepath.Join(h, "Library", "LaunchAgents", label+".plist"), nil
 }
 
-// Ligar grava o LaunchAgent (RunAtLoad) e carrega.
-func Ligar() error {
-	exe, err := executavel()
-	if err != nil {
-		return err
-	}
+// LigarCom (caminho do executável dado) grava o LaunchAgent (RunAtLoad) e carrega.
+func LigarCom(exe string) error {
 	p, err := plist()
 	if err != nil {
 		return err

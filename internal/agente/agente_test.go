@@ -36,6 +36,7 @@ type servidorFalso struct {
 	eventos  chan string
 	jobs     chan map[string]any
 	streams  int
+	starts   int // quantos códigos de pareamento foram pedidos
 	derrubar chan struct{}
 	revogado bool
 	srv      *httptest.Server
@@ -52,6 +53,9 @@ func novoServidor(t *testing.T) *servidorFalso {
 		if b["name"] != "PC-TESTE" {
 			t.Errorf("nome: %v", b)
 		}
+		s.mu.Lock()
+		s.starts++
+		s.mu.Unlock()
 		w.WriteHeader(201)
 		_, _ = fmt.Fprint(w, `{"code":"ABCDEF","poll_token":"tok","expires_at":"2026-10-21T12:10:00Z"}`)
 	})
@@ -243,7 +247,7 @@ func montar(t *testing.T, srv *servidorFalso, imp *impressoraFalsa) (*Agente, *c
 	f, _ := fila.Abrir(filepath.Join(dir, "fila"))
 	a := New(cfg, f, Opcoes{
 		Versao: "0.0.0-teste", SO: "teste", NomeDoPC: "PC-TESTE",
-		Imprimir: imp.imprimir, Ler: imp.ler, SaudeCada: 40 * time.Millisecond,
+		Imprimir: imp.imprimir, Ler: imp.ler, Largura: func(context.Context, string) int { return 0 }, SaudeCada: 40 * time.Millisecond,
 		Listar: func() ([]impressora.Info, error) {
 			return []impressora.Info{{Nome: "EPSON", Padrao: true}, {Nome: "COZ"}}, nil
 		},

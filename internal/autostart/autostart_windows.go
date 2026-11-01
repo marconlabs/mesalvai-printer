@@ -6,12 +6,8 @@ import "golang.org/x/sys/windows/registry"
 
 const chave = `Software\Microsoft\Windows\CurrentVersion\Run`
 
-// Ligar grava HKCU\...\Run\MesalvaiPrinter = "<exe>" --bandeja.
-func Ligar() error {
-	exe, err := executavel()
-	if err != nil {
-		return err
-	}
+// LigarCom grava HKCU\...\Run\MesalvaiPrinter = "<exe>" --bandeja.
+func LigarCom(exe string) error {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, chave, registry.SET_VALUE)
 	if err != nil {
 		return err

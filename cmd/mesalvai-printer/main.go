@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -72,7 +73,9 @@ func main() {
 			log.Warn("autostart", "erro", err)
 		}
 	}
-	// Atualização sozinha: confere 1 min depois de abrir e a cada 6 h.
+	// Atualização sozinha: confere 1 min depois de abrir e a cada 6 h. Cada
+	// conferência (e cada falha) vai pro log e pra janela ("conferida há N h").
+	a.AtualizacaoLigada(c.AutoUpdate && versao != "v0.0.0-dev")
 	if c.AutoUpdate && versao != "v0.0.0-dev" {
 		go func() {
 			for {
@@ -81,9 +84,13 @@ func main() {
 					return
 				case <-time.After(time.Minute):
 				}
-				update.Verificar(ctx, versao, true, func(tag string) {
+				r := update.Verificar(ctx, versao, true, func(tag string) {
 					avisar("Mesalvaí Printer atualizado", "Versão "+tag+" instalada. Vale no próximo arranque.")
 				})
+				if ctx.Err() != nil {
+					return
+				}
+				a.RegistrarConferencia(agente.Atualizacao{Resultado: r.Estado, Tag: r.Tag, Erro: r.Erro})
 				select {
 				case <-ctx.Done():
 					return
@@ -99,7 +106,18 @@ func main() {
 		time.Sleep(300 * time.Millisecond)
 		os.Exit(0)
 	}
-	w := &ui.Web{Agente: a, Cfg: cfg, LogPath: logPath, Sair: sair}
+	exe, _ := os.Executable()
+	// Pasta fixa: guardou a cópia → este processo sai e a cópia abre na bandeja.
+	reabrir := func(novoExe string) {
+		log.Info("pasta fixa: reabrindo a cópia", "exe", novoExe)
+		cancel()
+		time.Sleep(700 * time.Millisecond) // este programa solta a fila antes da cópia conectar
+		if err := exec.Command(novoExe, "--bandeja").Start(); err != nil {
+			log.Error("pasta fixa: não abriu a cópia", "erro", err)
+		}
+		os.Exit(0)
+	}
+	w := &ui.Web{Agente: a, Cfg: cfg, LogPath: logPath, Sair: sair, Exe: exe, Dev: versao == "v0.0.0-dev", Reabrir: reabrir}
 	url, err := w.Servir(ctx)
 	if err != nil {
 		log.Error("janela", "erro", err)
@@ -125,5 +143,5 @@ func main() {
 		if err := a.TestePapel(ctx, "frente"); err != nil {
 			avisar("Teste não saiu", err.Error())
 		}
-	}, sair)
+	}, func() { ui.AbrirNoNavegador(url + "#fechar") }) // a caixa de confirmação é da página
 }

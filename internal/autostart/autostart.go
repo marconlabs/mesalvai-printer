@@ -14,3 +14,12 @@ func executavel() (string, error) {
 	}
 	return p, nil
 }
+
+// Ligar liga "abrir com o sistema" apontando para este executável.
+func Ligar() error {
+	exe, err := executavel()
+	if err != nil {
+		return err
+	}
+	return LigarCom(exe)
+}

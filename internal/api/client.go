@@ -138,6 +138,10 @@ type SaudeSetor struct {
 	IPMudou   bool `json:"ip_mudou,omitempty"`
 	// TesteEm: último "Imprimir teste" que saiu daqui (RFC 3339); vazio = falta o teste.
 	TesteEm string `json:"teste_em,omitempty"`
+	// LarguraDetectada: largura do papel (58 ou 80, em mm) que o driver desta
+	// impressora informa; 0/ausente = o driver não disse (impressora de rede
+	// nunca diz). É só sugestão: quem decide a largura é a pessoa, no teste.
+	LarguraDetectada int `json:"largura_detectada,omitempty"`
 }
 
 // AckInfo é o corpo do ack v2.
@@ -157,11 +161,24 @@ type Hello struct {
 
 // Evento do stream SSE.
 type Evento struct {
-	Tipo  string // hello | job | revoked | config | cancel | ping
+	Tipo  string // hello | job | revoked | config | cancel | procurar | ping
 	Job   *Job
 	Hello *Hello
+	// Procurar: pedido do painel para varrer a rede atrás de impressoras.
+	Procurar *ComandoProcurar
 	// Cancelar: ids dos papéis que o navegador assumiu (evento cancel).
 	Cancelar []string
+}
+
+// ComandoProcurar é o corpo (opcional) do evento `procurar` do stream: o painel
+// pede "Procurar impressoras" neste computador. Campos vazios = qualquer um.
+// Evento opcional: servidor que não manda não muda nada aqui.
+type ComandoProcurar struct {
+	// AgenteID: para qual computador é; vazio = quem estiver ouvindo.
+	AgenteID string `json:"agente_id,omitempty"`
+	// Setor: de qual setor veio o pedido (só vai pro log; a lista achada
+	// serve a todos os setores).
+	Setor string `json:"setor,omitempty"`
 }
 
 // Status é o que o programa manda em POST /printer-agent/status.
@@ -412,6 +429,11 @@ func parseEvento(tipo, data string) (Evento, error) {
 	case "config":
 		// "Busque GET /printer-agent/config de novo" (o corpo não importa).
 		return Evento{Tipo: "config"}, nil
+	case "procurar":
+		// Corpo opcional: sem JSON (ou JSON estranho) = procurar mesmo assim.
+		var p ComandoProcurar
+		_ = json.Unmarshal([]byte(data), &p)
+		return Evento{Tipo: "procurar", Procurar: &p}, nil
 	case "cancel":
 		var c struct {
 			JobIDs []string `json:"job_ids"`

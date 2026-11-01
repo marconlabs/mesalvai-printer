@@ -15,12 +15,8 @@ func desktop() (string, error) {
 	return filepath.Join(d, "autostart", Nome+".desktop"), nil
 }
 
-// Ligar grava ~/.config/autostart/MesalvaiPrinter.desktop.
-func Ligar() error {
-	exe, err := executavel()
-	if err != nil {
-		return err
-	}
+// LigarCom grava ~/.config/autostart/MesalvaiPrinter.desktop.
+func LigarCom(exe string) error {
 	p, err := desktop()
 	if err != nil {
 		return err

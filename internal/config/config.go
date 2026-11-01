@@ -44,11 +44,14 @@ type Config struct {
 	Rede []RedeAchada `json:"rede,omitempty"`
 	// Testes: chave do setor → quando saiu o último "Imprimir teste" daqui
 	// (RFC 3339). Computador sem teste fica com "falta o teste" no painel (P5).
-	Testes         map[string]string `json:"testes,omitempty"`
-	AutoStart      bool              `json:"auto_start"`
-	AutoUpdate     bool              `json:"auto_update"`
-	PortaUI        int               `json:"porta_ui,omitempty"`
-	AbrirAoIniciar bool              `json:"abrir_ao_iniciar"`
+	Testes map[string]string `json:"testes,omitempty"`
+	// PastaFixa: resposta à pergunta "Guardar o programa em uma pasta fixa?"
+	// ("" = ainda não perguntou, "guardada" ou "recusada").
+	PastaFixa      string `json:"pasta_fixa,omitempty"`
+	AutoStart      bool   `json:"auto_start"`
+	AutoUpdate     bool   `json:"auto_update"`
+	PortaUI        int    `json:"porta_ui,omitempty"`
+	AbrirAoIniciar bool   `json:"abrir_ao_iniciar"`
 }
 
 // SetorLocal é o vínculo de um setor neste computador.

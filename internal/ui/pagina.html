@@ -44,19 +44,42 @@
   .passos li:first-child { border-top:0 }
   .marca { flex:none; width:24px; height:24px; border-radius:50%; border:2px solid var(--muted); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; margin-top:2px }
   .marca.ok { background:var(--ok); border-color:var(--ok); color:#fff }
+  .cod-acoes { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:8px }
+  .contagem { text-align:center; font-weight:600; margin:6px 0 0 }
+  .contagem.fim { color:var(--warn) }
+  dialog { border:1px solid var(--line); border-radius:14px; padding:20px; max-width:420px; width:calc(100% - 32px); background:var(--card); color:var(--ink) }
+  dialog::backdrop { background:rgba(0,0,0,.45) }
+  dialog h2 { font-size:18px; margin:0 0 8px; text-transform:none; letter-spacing:0; color:var(--ink) }
+  dialog .row button { flex:1 }
+  button.perigo { background:var(--bad); color:#fff; border-color:var(--bad) }
   .passos b { display:block } .passos .botoes { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px }
 </style>
 </head>
 <body>
 <main>
   <h1>Mesalvaí Printer</h1>
-  <p class="sub">Imprime os pedidos da loja mesmo com o painel fechado. Versão <span id="versao">?</span>.</p>
+  <p class="sub">Imprime os pedidos da loja mesmo com o painel fechado. Versão <span id="versao">?</span><span id="conferida"></span>.</p>
 
   <section class="card" id="pareamento">
     <h2>Vincular à loja</h2>
     <p>No painel, abra <b>Configurações › Este aparelho › Impressora › Computador de impressão</b> e digite estas letras:</p>
     <div class="codigo" id="codigo">······</div>
+    <p class="contagem hide" id="contagem" role="timer"></p>
+    <div class="cod-acoes">
+      <button id="copiar" type="button">Copiar</button>
+      <button id="outro-codigo" type="button">Gerar outro código</button>
+    </div>
     <p class="dica" id="codigo-dica">O código vale 10 minutos. Vencido? Um novo aparece sozinho.</p>
+  </section>
+
+  <section class="card hide" id="pasta-fixa">
+    <h2>Guardar o programa em uma pasta fixa?</h2>
+    <p>Hoje o programa está rodando de onde foi baixado. Se essa pasta for limpa, ele deixa de abrir com o sistema e os pedidos param de sair. Posso guardar uma cópia em <code id="pasta-destino"></code> e abrir sempre de lá. O arquivo baixado continua onde está.</p>
+    <div class="row">
+      <button class="cta" id="pasta-sim" type="button">Guardar em pasta fixa</button>
+      <button id="pasta-nao" type="button">Agora não</button>
+    </div>
+    <p class="erro hide" id="pasta-erro" role="alert"></p>
   </section>
 
   <section class="card hide" id="vinculado">
@@ -97,6 +120,14 @@
     <pre class="hide" id="log"></pre>
   </section>
 </main>
+<dialog id="fechar-caixa" aria-labelledby="fechar-titulo">
+  <h2 id="fechar-titulo">Fechar o Mesalvaí Printer?</h2>
+  <p>Os pedidos deixam de sair por este computador até você abrir o programa de novo. Enquanto isso o painel no navegador volta a imprimir.</p>
+  <div class="row">
+    <button id="fechar-cancelar" type="button" autofocus>Cancelar</button>
+    <button id="fechar-confirmar" class="perigo" type="button">Fechar o programa</button>
+  </div>
+</dialog>
 <script>
 const $ = (id) => document.getElementById(id);
 const post = (p, b) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b ?? {}) }).then(async (r) => { if (!r.ok) throw new Error(await r.text()); });
@@ -189,6 +220,29 @@ function montarPassos(e) {
   ul.append(passo(okTeste, okTeste ? 'Teste impresso em cada setor' : 'Imprima o teste de cada setor',
     okTeste ? '' : 'Sem o teste a loja fica com "falta o teste" no painel. A linha 1234567890 tem que chegar até a borda do papel.', okImp ? semTeste.map(botaoTeste) : []));
 }
+let expira = null;
+function contar() {
+  const c = $('contagem');
+  if (!expira) { c.classList.add('hide'); return; }
+  const s = Math.max(0, Math.round((expira - Date.now()) / 1000));
+  c.classList.remove('hide'); c.classList.toggle('fim', s === 0);
+  c.textContent = s === 0 ? 'Esse código venceu. Gere outro código.' : `Digite no painel em ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+setInterval(contar, 1000);
+function textoConferencia(u) {
+  if (!u || !u.ligada) return ' · atualização sozinha desligada';
+  if (!u.quando || u.quando.startsWith('0001')) return ' · ainda não conferida';
+  const q = `conferida ${ha(u.quando)}`;
+  if (u.resultado === 'erro') return ` · ${q} (não consegui: ${u.erro})`;
+  if (u.resultado === 'instalada') return ` · ${q} · ${u.tag} instalada: vale no próximo arranque`;
+  if (u.resultado === 'disponivel') return ` · ${q} · ${u.tag} disponível`;
+  return ` · ${q}`;
+}
+function pintarPastaFixa(p) {
+  const mostra = !!(p && p.pergunta);
+  $('pasta-fixa').classList.toggle('hide', !mostra);
+  if (mostra) $('pasta-destino').textContent = p.destino;
+}
 function ha(iso) { if (!iso || iso.startsWith('0001')) return ''; const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? 'agora' : s < 3600 ? `há ${Math.round(s/60)} min` : `há ${Math.round(s/3600)} h`; }
 async function tick() {
   try {
@@ -202,6 +256,11 @@ async function tick() {
     $('desvincular').classList.toggle('hide', !e.vinculado);
     $('codigo').textContent = e.codigo ? e.codigo.split('').join(' ') : '······';
     $('codigo-dica').textContent = e.codigo ? 'O código vale 10 minutos. Vencido? Um novo aparece sozinho.' : (e.ultimo_erro || 'Pedindo um código à Mesalvaí…');
+    expira = e.codigo && e.codigo_expira && !e.codigo_expira.startsWith('0001') ? new Date(e.codigo_expira) : null;
+    $('copiar').disabled = !e.codigo;
+    contar();
+    pintarPastaFixa(d.pasta_fixa);
+    $('conferida').textContent = textoConferencia(e.atualizacao);
     $('dot').classList.toggle('on', e.conectado);
     $('loja').textContent = e.loja_nome || '—';
     $('conexao').textContent = e.conectado ? '· conectado' : '· reconectando…';
@@ -241,10 +300,37 @@ $('procurar').onclick = async () => {
   } catch (e) { $('procurar-msg').textContent = 'Não deu pra procurar: ' + e.message; }
   tick();
 };
+$('outro-codigo').onclick = () => {
+  const b = $('outro-codigo'); b.disabled = true; $('codigo').textContent = '······'; $('codigo-dica').textContent = 'Pedindo um código novo à Mesalvaí…';
+  post('/novo-codigo').catch((e) => { $('codigo-dica').textContent = 'Não deu pra gerar outro: ' + e.message; }).finally(() => { b.disabled = false; tick(); });
+};
+$('copiar').onclick = async () => {
+  const cod = estado && estado.codigo; if (!cod) return;
+  const b = $('copiar');
+  try { await navigator.clipboard.writeText(cod); }
+  catch { const t = document.createElement('textarea'); t.value = cod; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
+  b.textContent = 'Copiado'; clearTimeout(b.t); b.t = setTimeout(() => { b.textContent = 'Copiar'; }, 2000);
+};
+$('pasta-nao').onclick = () => post('/pasta-fixa', { aceitar: false }).then(tick);
+$('pasta-sim').onclick = async () => {
+  const b = $('pasta-sim'); b.disabled = true; $('pasta-erro').classList.add('hide');
+  try {
+    await post('/pasta-fixa', { aceitar: true });
+    document.body.innerHTML = '<main><h1>Programa guardado.</h1><p>O Mesalvaí Printer vai reabrir sozinho na bandeja, já rodando da pasta fixa. Pode fechar esta aba.</p></main>';
+  } catch (e) { b.disabled = false; $('pasta-erro').textContent = 'Não consegui guardar: ' + e.message; $('pasta-erro').classList.remove('hide'); }
+};
 $('desvincular').onclick = () => { if (confirm('Desvincular este computador da loja? Os pedidos param de sair por aqui.')) post('/desvincular').then(tick); };
 $('autostart').onchange = () => post('/autostart', { ligado: $('autostart').checked }).catch((e) => alert(e.message));
 $('atualizar-log').onclick = async () => { $('log').textContent = await (await fetch('/log')).text(); $('log').classList.remove('hide'); $('log').scrollTop = 1e9; };
-$('sair').onclick = () => { if (confirm('Fechar o Mesalvaí Printer? Os pedidos deixam de sair por este computador.')) post('/sair').then(() => { document.body.innerHTML = '<main><h1>Programa fechado.</h1><p>Pode fechar esta aba.</p></main>'; }); };
+// Fechar o programa: caixa própria, "Cancelar" é o padrão. A bandeja abre a
+// página já com #fechar pra perguntar a mesma coisa.
+const caixa = $('fechar-caixa');
+function pedirFechar() { if (!caixa.open) caixa.showModal(); }
+$('sair').onclick = pedirFechar;
+$('fechar-cancelar').onclick = () => { caixa.close(); if (location.hash === '#fechar') history.replaceState(null, '', location.pathname); };
+$('fechar-confirmar').onclick = () => post('/sair').then(() => { caixa.close(); document.body.innerHTML = '<main><h1>Programa fechado.</h1><p>Pode fechar esta aba.</p></main>'; });
+if (location.hash === '#fechar') pedirFechar();
+window.addEventListener('hashchange', () => { if (location.hash === '#fechar') pedirFechar(); });
 tick(); setInterval(tick, 2000);
 </script>
 </body>

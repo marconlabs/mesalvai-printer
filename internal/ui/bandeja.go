@@ -16,8 +16,9 @@ func Balao(titulo, texto string) {
 }
 
 // Bandeja roda o ícone da bandeja (bloqueia a goroutine principal; é assim
-// no Mac). `abrir` abre a janela; `sair` encerra tudo.
-func Bandeja(ctx context.Context, a *agente.Agente, abrir func(), teste func(), sair func()) {
+// no Mac). `abrir` abre a janela; `pedirFechar` abre a janela já com a caixa
+// "Fechar o Mesalvaí Printer?" (a bandeja não fecha sem perguntar).
+func Bandeja(ctx context.Context, a *agente.Agente, abrir func(), teste func(), pedirFechar func()) {
 	onReady := func() {
 		systray.SetIcon(icone(false))
 		systray.SetTooltip("Mesalvaí Printer")
@@ -27,7 +28,7 @@ func Bandeja(ctx context.Context, a *agente.Agente, abrir func(), teste func(), 
 		mAbrir := systray.AddMenuItem("Abrir", "Código, impressoras, teste e log")
 		mTeste := systray.AddMenuItem("Imprimir teste", "Papel de teste na impressora da frente")
 		systray.AddSeparator()
-		mSair := systray.AddMenuItem("Fechar o programa", "Os pedidos param de sair por este computador")
+		mSair := systray.AddMenuItem("Fechar o programa…", "Pergunta antes: os pedidos param de sair por este computador")
 		atualizar := func(e agente.Estado) {
 			systray.SetIcon(icone(e.Conectado))
 			switch {
@@ -59,7 +60,7 @@ func Bandeja(ctx context.Context, a *agente.Agente, abrir func(), teste func(), 
 				case <-mTeste.ClickedCh:
 					teste()
 				case <-mSair.ClickedCh:
-					sair()
+					pedirFechar()
 				}
 			}
 		}()

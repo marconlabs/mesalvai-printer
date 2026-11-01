@@ -32,7 +32,9 @@ Release (local, num Mac, sem Actions): `scripts/release.sh vX.Y.Z` → `.exe`, `
 | `internal/fila` | fila em disco |
 | `internal/impressora` | winspool (Windows), CUPS (`lp -o raw`), TCP 9100; `rede.go` = procurar impressoras |
 | `internal/ui` | página local (`127.0.0.1`) + bandeja |
-| `internal/autostart`, `internal/update`, `internal/logs`, `internal/config` | abrir com o sistema, auto-update (sha256), log, config |
+| `internal/autostart`, `internal/update`, `internal/logs`, `internal/config` | abrir com o sistema, auto-update (sha256; `Verificar` devolve o resultado que vai pro log e pra janela), log, config |
+| `internal/instalar` | "Guardar o programa em uma pasta fixa?" (1ª abertura) |
+| `internal/impressora/largura*.go` | largura do papel que o driver informa (58/80) → `largura_detectada` |
 
 ## Docs
 Índice: `docs/README.md` · regras: `docs/negocio.md` · problemas: `docs/troubleshooting.md` · assinatura do binário: `docs/assinatura.md` · uso e instalação: `README.md`.
