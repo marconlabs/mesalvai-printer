@@ -116,6 +116,12 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
   `impressora`, `imprime` (principal OU reserva pronta), `na_reserva`,
   `fora_ha_s`, `degradado`, `ip_mudou`, `teste_em`; e `sem_sono`. Manda quando
   muda e, enquanto algum setor não imprime, a cada 30 s.
+- `saude` vai **sempre completo**: nenhum setor com impressora = `{}` (antes o
+  `{}` sumia do JSON e a API ficava com a saúde velha). Sem leitura ainda
+  (programa acabou de abrir) o campo não vai.
+- Escolher/trocar/tirar a impressora de um setor recalcula a saúde **antes** de
+  mandar o vínculo: o painel vê o setor pronto na hora, sem esperar a próxima
+  leitura (~30 s). (06/11: o painel mostrava "Impressora: não configurada".)
 
 ## "IP mudou?" (P3)
 
@@ -156,8 +162,10 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
   se vazio, procura 58/80 no nome do driver); Mac/Linux = papel padrão (`*`)
   em `lpoptions -p NOME -l`. 48–62 mm vale **58**, 70–90 mm vale **80**; folha
   A4 ou etiqueta não conta (0).
-- Vai no status como `saude.<setor>.largura_detectada` (58 ou 80; ausente =
-  o driver não disse). Impressora de rede (`tcp://`) nunca informa: o painel
+- Vai no status no topo, no formato da API: `largura_detectada.<setor> =
+  {mm: 58|80, fonte: "driver", impressora}` (ausente = o driver não disse); e,
+  para compatibilidade, também em `saude.<setor>.largura_detectada`. Até 06/11
+  só ia dentro de `saude` e a API (que lê o topo) nunca recebia a sugestão. Impressora de rede (`tcp://`) nunca informa: o painel
   sugere pelo nome/modelo. **É só sugestão**: o programa nunca troca a largura
   da loja; a pessoa confirma no papel de teste.
 - A leitura é repetida a cada 10 min por impressora (no Mac cada leitura é um

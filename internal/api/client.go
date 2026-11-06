@@ -144,6 +144,13 @@ type SaudeSetor struct {
 	LarguraDetectada int `json:"largura_detectada,omitempty"`
 }
 
+// LarguraSetor é a largura sugerida de um setor (só 58/80; fonte "driver").
+type LarguraSetor struct {
+	MM         int    `json:"mm"`
+	Fonte      string `json:"fonte"`
+	Impressora string `json:"impressora,omitempty"`
+}
+
 // AckInfo é o corpo do ack v2.
 type AckInfo struct {
 	Status  string `json:"status"`            // impresso | falhou
@@ -193,7 +200,13 @@ type Status struct {
 	Setores map[string]*SetorStatus `json:"setores,omitempty"`
 	Caps    []string                `json:"caps,omitempty"`
 	// Saude por setor (chave do setor). Sempre completo: quem não vem, saiu.
-	Saude map[string]SaudeSetor `json:"saude,omitempty"`
+	// Ponteiro: nil = ainda não leu (não vai no JSON); mapa vazio vai como `{}`
+	// (todos os setores ficaram sem impressora). Com `omitempty` num mapa, o
+	// `{}` sumia e a API (COALESCE) ficava com a saúde velha para sempre.
+	Saude *map[string]SaudeSetor `json:"saude,omitempty"`
+	// LarguraDetectada no formato da API (`{"frente":{"mm":58,"fonte":"driver","impressora":"EPSON"}}`).
+	// A API só lê o campo do topo; `saude.<setor>.largura_detectada` fica pro programa antigo.
+	LarguraDetectada map[string]LarguraSetor `json:"largura_detectada,omitempty"`
 	// SemSono: o programa está impedindo o repouso do computador (P1).
 	SemSono *bool `json:"sem_sono,omitempty"`
 }

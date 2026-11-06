@@ -224,3 +224,83 @@ func TestSemSonoVaiNoStatus(t *testing.T) {
 		t.Fatalf("status: %v", ult["sem_sono"])
 	}
 }
+
+// ultimoStatus devolve o último corpo de POST /printer-agent/status.
+func (s *servidorFalso) ultimoStatus() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.status) == 0 {
+		return nil
+	}
+	return s.status[len(s.status)-1]
+}
+
+// Bug 06/11: escolher a impressora no programa só mandava a saúde do setor na
+// leitura seguinte (~30 s): o painel mostrava "sem impressora" nesse tempo.
+// Tirar a última impressora mandava a saúde vazia SEM o campo (`omitempty`) e
+// a API (COALESCE) ficava com a saúde velha (setor "pronto" ou degradado) pra sempre.
+func TestVincularMandaSaudeNaHoraEDesvincularMandaVazio(t *testing.T) {
+	srv := novoServidor(t)
+	srv.pareado = true
+	imp := &impressoraFalsa{}
+	a, cfg, _ := montar(t, srv, imp)
+	_ = cfg.Update(func(c *config.Config) { c.Chave = "mpk_teste" })
+	ctx := context.Background()
+	a.recalcularSaude() // programa aberto, nenhuma impressora escolhida: saúde lida e vazia
+
+	if err := a.VincularSetor(ctx, "frente", "EPSON USB", ""); err != nil {
+		t.Fatal(err)
+	}
+	st := srv.ultimoStatus()
+	m, ok := st["saude"].(map[string]any)
+	if !ok {
+		t.Fatalf("status sem saude depois de vincular: %v", st)
+	}
+	f, ok := m["frente"].(map[string]any)
+	if !ok || f["impressora"] != "EPSON USB" || f["estado"] != "pronta" || f["imprime"] != true {
+		t.Fatalf("saude.frente na hora do vínculo: %v", m)
+	}
+
+	if err := a.VincularSetor(ctx, "frente", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	st = srv.ultimoStatus()
+	m, ok = st["saude"].(map[string]any)
+	if !ok {
+		t.Fatalf("tirou a última impressora: saude tem que ir como {} (veio %v)", st["saude"])
+	}
+	if len(m) != 0 {
+		t.Fatalf("saude devia ir vazia: %v", m)
+	}
+}
+
+// Sem leitura ainda (programa acabou de abrir): o status não manda `saude`
+// (a API mantém a que tinha), nem `null`.
+func TestStatusSemLeituraNaoMandaSaude(t *testing.T) {
+	srv := novoServidor(t)
+	srv.pareado = true
+	a, cfg, _ := montar(t, srv, &impressoraFalsa{})
+	_ = cfg.Update(func(c *config.Config) { c.Chave = "mpk_teste" })
+	if err := a.enviarStatus(context.Background(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, tem := srv.ultimoStatus()["saude"]; tem {
+		t.Fatalf("saude sem leitura não vai: %v", srv.ultimoStatus())
+	}
+}
+
+// A API lê a largura no topo do status (`largura_detectada.<setor>.mm`), não
+// dentro de `saude`: antes a sugestão do driver nunca chegava ao painel.
+func TestLarguraVaiNoTopoDoStatusNoFormatoDaAPI(t *testing.T) {
+	got := larguraParaAPI(map[string]api.SaudeSetor{
+		"frente":  {Impressora: "EPSON", LarguraDetectada: 58},
+		"cozinha": {Impressora: "COZ"},
+		"bar":     {Impressora: "X", LarguraDetectada: 72},
+	})
+	if len(got) != 1 || got["frente"] != (api.LarguraSetor{MM: 58, Fonte: "driver", Impressora: "EPSON"}) {
+		t.Fatalf("largura: %+v", got)
+	}
+	if larguraParaAPI(map[string]api.SaudeSetor{"frente": {}}) != nil {
+		t.Fatal("sem leitura nenhuma = campo fora do JSON")
+	}
+}

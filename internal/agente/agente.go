@@ -621,7 +621,9 @@ func (a *Agente) enviarStatus(ctx context.Context, erro *string, setores map[str
 	c := a.cfg.Get()
 	st := api.Status{Printers: nomes, FrontPrinter: ptr(c.Frente), KitchenPrinter: ptr(c.Cozinha), LastError: erro, Setores: setores, Caps: api.Caps}
 	if e := a.Estado(); e.Saude != nil {
-		st.Saude = e.Saude
+		saude := e.Saude
+		st.Saude = &saude
+		st.LarguraDetectada = larguraParaAPI(saude)
 		sono := e.SemSono
 		st.SemSono = &sono
 	}
@@ -636,6 +638,21 @@ func (a *Agente) enviarStatus(ctx context.Context, erro *string, setores map[str
 		a.op.Log.Warn("status", "erro", err)
 	}
 	return err
+}
+
+// larguraParaAPI: a largura que o driver informa, no campo que a API lê
+// (`largura_detectada` no topo do status). Setor sem leitura (0) não vai.
+func larguraParaAPI(saude map[string]api.SaudeSetor) map[string]api.LarguraSetor {
+	out := map[string]api.LarguraSetor{}
+	for k, s := range saude {
+		if s.LarguraDetectada == 58 || s.LarguraDetectada == 80 {
+			out[k] = api.LarguraSetor{MM: s.LarguraDetectada, Fonte: "driver", Impressora: s.Impressora}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func statusDoSetor(s config.SetorLocal) *api.SetorStatus {
@@ -804,6 +821,9 @@ func (a *Agente) VincularSetor(ctx context.Context, key, imp, reserva string) er
 	}
 	a.refletirConfig()
 	a.mudar(func(e *Estado) { e.UltimoErro = "" })
+	// A saúde já sai com o vínculo novo (antes esperava a próxima leitura, ~30 s,
+	// e o painel mostrava o setor sem impressora nesse meio-tempo).
+	a.recalcularSaude()
 	if err := a.enviarStatus(ctx, nil, map[string]*api.SetorStatus{key: statusDoSetor(a.cfg.Get().Setor(key))}); err != nil {
 		a.pendentes = true
 	}
@@ -820,6 +840,7 @@ func (a *Agente) Escolher(ctx context.Context, frente, cozinha string) error {
 	}
 	a.refletirConfig()
 	a.mudar(func(e *Estado) { e.UltimoErro = "" })
+	a.recalcularSaude()
 	c := a.cfg.Get()
 	if err := a.enviarStatus(ctx, nil, map[string]*api.SetorStatus{"frente": statusDoSetor(c.Setor("frente")), "cozinha": statusDoSetor(c.Setor("cozinha"))}); err != nil {
 		a.pendentes = true

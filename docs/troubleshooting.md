@@ -151,3 +151,19 @@ A largura vista pelo driver (`largura_detectada`) é só sugestão. Driver
 genérico ("Generic / Text Only") não informa e fica sem sugestão; impressora de
 rede nunca informa. A largura que vale é a da loja: confirme no papel de teste
 (a linha 1234567890 tem que chegar até a borda).
+
+## O painel diz "Impressora: não configurada" com o Printer imprimindo
+
+Até 06/11 o painel olhava só a impressora do navegador; hoje ele mostra
+"Impressora: pelo computador (Mesalvaí Printer)". Se ainda aparecer sem
+impressora no setor logo depois de escolher no programa: versão até v2.2.0 só
+mandava a saúde do setor na leitura seguinte (~30 s) e, ao tirar a última
+impressora, a API ficava com a saúde velha. Atualize o programa (versão nova
+recalcula e manda na hora; `saude: {}` quando não sobra impressora). Conferir:
+`GET /me/print-agents` → `agents[].saude` e `setores.frente.impressora`.
+
+## O painel nunca sugere a largura do papel (58/80)
+
+Versão até v2.2.0 mandava a largura do driver só dentro de `saude`; a API lê
+`largura_detectada` no topo do status. Atualize o programa. Impressora de rede
+continua sem sugestão (não tem driver).

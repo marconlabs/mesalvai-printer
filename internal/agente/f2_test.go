@@ -123,6 +123,19 @@ func TestLarguraDetectadaVaiNoStatusPorSetor(t *testing.T) {
 		}
 		return false
 	}, "status com saude.frente.largura_detectada")
+	ate(t, func() bool {
+		srv.mu.Lock()
+		defer srv.mu.Unlock()
+		for _, st := range srv.status {
+			if m, ok := st["largura_detectada"].(map[string]any); ok {
+				if f, ok := m["frente"].(map[string]any); ok && f["mm"] == float64(58) && f["fonte"] == "driver" && f["impressora"] == "EPSON" {
+					_, tem := m["cozinha"]
+					return !tem
+				}
+			}
+		}
+		return false
+	}, "status com largura_detectada.frente no topo (formato da API)")
 	// Rede nunca lê driver; e não relê a cada 40 ms (cache).
 	time.Sleep(300 * time.Millisecond)
 	if n := leituras.Load(); n > 2 {
