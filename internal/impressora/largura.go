@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-// Largura do papel que o DRIVER da impressora informa (58 ou 80 mm). É só uma
+// Largura do papel que o DRIVER da impressora informa (48, 58 ou 80 mm). É só uma
 // sugestão pro painel: nunca troca a largura da loja sozinha, quem confirma é
 // a pessoa no papel de teste. Impressora de rede (tcp://) não tem driver aqui:
 // devolve 0 e o painel sugere pelo nome/modelo.
 
-// LerLargura devolve 58, 80 ou 0 (o driver não disse / não dá pra saber).
+// LerLargura devolve 48, 58, 80 ou 0 (o driver não disse / não dá pra saber).
 // Nunca imprime nada.
 func LerLargura(ctx context.Context, nome string) int {
 	nome = strings.TrimSpace(nome)
@@ -23,12 +23,18 @@ func LerLargura(ctx context.Context, nome string) int {
 	return larguraSistema(ctx, nome)
 }
 
-// ClassificarLargura leva uma medida de papel em mm para 58 ou 80.
-// 48–62 mm vale 58 (rolos de 57/58 mm); 70–90 mm vale 80 (79/80/82,5 mm).
-// Qualquer outra medida (A4, 100 mm de etiqueta…) é 0: não é bobina de notinha.
+// ClassificarLargura leva uma medida de papel em mm para 48, 58 ou 80.
+// 44–52 mm vale 48 (mini de 48 mm, ou driver que informa só a área de
+// impressão de 48 mm = 384 pontos); 53–62 mm vale 58 (rolos de 57/58 mm);
+// 70–90 mm vale 80 (79/80/82,5 mm). Qualquer outra medida (A4, 100 mm de
+// etiqueta…) é 0: não é bobina de notinha. O perfil 48 imprime igual ao 58
+// por padrão (384 pontos, 32 colunas): a diferença é o ajuste de colunas na
+// tela da impressora do painel/app.
 func ClassificarLargura(mm float64) int {
 	switch {
-	case mm >= 48 && mm <= 62:
+	case mm >= 44 && mm < 53:
+		return 48
+	case mm >= 53 && mm <= 62:
 		return 58
 	case mm >= 70 && mm <= 90:
 		return 80
@@ -39,13 +45,15 @@ func ClassificarLargura(mm float64) int {
 var (
 	reMM    = regexp.MustCompile(`(?i)(\d{2,3}(?:[.,]\d+)?)\s*mm`)
 	reXMM   = regexp.MustCompile(`(?i)\bx(\d{2,3})mm`)
+	reWxH   = regexp.MustCompile(`(?i)(?:^|[^\d])(\d{2,3}(?:[.,]\d+)?)\s*[x×]\s*\d{2,4}(?:[.,]\d+)?\s*mm`)
 	rePts   = regexp.MustCompile(`(?i)\bw(\d{2,3})h\d+`)
 	reRolo  = regexp.MustCompile(`(?i)(?:^|[^\d])(58|80)(?:[^\d]|$)`)
-	reRotul = regexp.MustCompile(`(?i)\b(?:roll|rolo|receipt|recibo|rp|pos)[\s_-]*(58|80)\b`)
+	reRotul = regexp.MustCompile(`(?i)\b(?:roll|rolo|receipt|recibo|rp|pos)[\s_-]*(48|58|80)\b`)
 )
 
 // LarguraDoTexto procura a largura no texto de um nome de papel ou de driver
-// ("80mm x 297mm", "X58MMY210MM", "w226h1000" em pontos, "Roll 80", "POS-58").
+// ("80mm x 297mm", "X58MMY210MM", "w226h1000" em pontos, "Roll 80", "POS-58", "POS-48").
+// "48" solto no nome NÃO conta (só com roll/pos/rolo antes): evita falso positivo.
 // 0 = nada que pareça bobina de notinha.
 func LarguraDoTexto(t string) int {
 	t = strings.TrimSpace(t)
@@ -55,6 +63,12 @@ func LarguraDoTexto(t string) int {
 	if m := reXMM.FindStringSubmatch(t); m != nil {
 		if n, _ := strconv.ParseFloat(m[1], 64); ClassificarLargura(n) != 0 {
 			return ClassificarLargura(n)
+		}
+	}
+	if m := reWxH.FindStringSubmatch(t); m != nil {
+		n, _ := strconv.ParseFloat(strings.Replace(m[1], ",", ".", 1), 64)
+		if l := ClassificarLargura(n); l != 0 {
+			return l
 		}
 	}
 	for _, m := range reMM.FindAllStringSubmatch(t, -1) {

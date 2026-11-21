@@ -11,7 +11,7 @@ import (
 )
 
 // larguraSistema lê o papel padrão do DEVMODE do driver (GetPrinterW nível 2)
-// e, se o driver não preencheu a largura, procura "58"/"80" no nome do driver
+// e, se o driver não preencheu a largura, procura "48"/"58"/"80" no nome do driver
 // (ex.: "XP-58", "POS-80 Series").
 func larguraSistema(_ context.Context, nome string) int {
 	n, err := syscall.UTF16PtrFromString(nome)

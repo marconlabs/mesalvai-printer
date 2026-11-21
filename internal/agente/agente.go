@@ -84,7 +84,7 @@ type Opcoes struct {
 	Procurar func(ctx context.Context) []impressora.Info
 	// Ler: estado da impressora (papel, tampa, resposta). Nunca imprime.
 	Ler func(ctx context.Context, nome string) impressora.Leitura
-	// Largura: largura do papel (58/80) que o driver informa; 0 = não sabe.
+	// Largura: largura do papel (48/58/80) que o driver informa; 0 = não sabe.
 	Largura func(ctx context.Context, nome string) int
 	// SaudeCada: de quanto em quanto tempo relê as impressoras dos setores.
 	SaudeCada  time.Duration
@@ -645,7 +645,7 @@ func (a *Agente) enviarStatus(ctx context.Context, erro *string, setores map[str
 func larguraParaAPI(saude map[string]api.SaudeSetor) map[string]api.LarguraSetor {
 	out := map[string]api.LarguraSetor{}
 	for k, s := range saude {
-		if s.LarguraDetectada == 58 || s.LarguraDetectada == 80 {
+		if s.LarguraDetectada == 48 || s.LarguraDetectada == 58 || s.LarguraDetectada == 80 {
 			out[k] = api.LarguraSetor{MM: s.LarguraDetectada, Fonte: "driver", Impressora: s.Impressora}
 		}
 	}

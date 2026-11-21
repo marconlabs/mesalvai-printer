@@ -159,15 +159,19 @@ Contrato com a API: `mesalvai-entregas-api/docs/arquitetura/mesalvai-printer.md`
 
 - Para cada impressora do sistema de um setor (USB com driver), o programa lê
   o papel padrão do driver: Windows = `dmPaperWidth` do DEVMODE (décimos de mm;
-  se vazio, procura 58/80 no nome do driver); Mac/Linux = papel padrão (`*`)
-  em `lpoptions -p NOME -l`. 48–62 mm vale **58**, 70–90 mm vale **80**; folha
-  A4 ou etiqueta não conta (0).
+  se vazio, procura 58/80 no nome do driver, ou 48 com rótulo: `POS-48`, `Roll 48`); Mac/Linux = papel padrão (`*`)
+  em `lpoptions -p NOME -l`. 44–52 mm vale **48** (21/11: mini de 48 mm ou
+  driver que informa só a área de impressão, 384 pontos), 53–62 mm vale **58**,
+  70–90 mm vale **80**; folha A4 ou etiqueta não conta (0). `48x210mm` (largura
+  x altura) também é lido.
 - Vai no status no topo, no formato da API: `largura_detectada.<setor> =
-  {mm: 58|80, fonte: "driver", impressora}` (ausente = o driver não disse); e,
+  {mm: 48|58|80, fonte: "driver", impressora}` (ausente = o driver não disse); e,
   para compatibilidade, também em `saude.<setor>.largura_detectada`. Até 06/11
   só ia dentro de `saude` e a API (que lê o topo) nunca recebia a sugestão. Impressora de rede (`tcp://`) nunca informa: o painel
   sugere pelo nome/modelo. **É só sugestão**: o programa nunca troca a largura
   da loja; a pessoa confirma no papel de teste.
+- O cabeçalho que o programa monta sozinho (setor, "SAIU NA RESERVA" + motivo)
+  cabe em 32 colunas (48/58 mm): motivo cortado em 32, linha de 32 traços.
 - A leitura é repetida a cada 10 min por impressora (no Mac cada leitura é um
   processo), num laço próprio que não atrasa a saúde.
 

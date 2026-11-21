@@ -64,10 +64,14 @@ func CabecalhoReserva(setor, motivo string) []byte {
 	return cabecalho(setor, "SAIU NA RESERVA", motivoCurto(motivo))
 }
 
+// colunasMinimas: o cabeçalho que o programa monta sozinho cabe no papel mais
+// estreito (48/58 mm = 32 colunas na fonte A), sem quebrar no meio da palavra.
+const colunasMinimas = 32
+
 func motivoCurto(m string) string {
 	m = strings.TrimSpace(SemAcento(m))
-	if len(m) > 42 {
-		m = m[:41] + "."
+	if len(m) > colunasMinimas {
+		m = m[:colunasMinimas-1] + "."
 	}
 	return m
 }

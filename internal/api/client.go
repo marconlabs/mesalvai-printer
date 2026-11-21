@@ -138,13 +138,13 @@ type SaudeSetor struct {
 	IPMudou   bool `json:"ip_mudou,omitempty"`
 	// TesteEm: último "Imprimir teste" que saiu daqui (RFC 3339); vazio = falta o teste.
 	TesteEm string `json:"teste_em,omitempty"`
-	// LarguraDetectada: largura do papel (58 ou 80, em mm) que o driver desta
+	// LarguraDetectada: largura do papel (48, 58 ou 80, em mm) que o driver desta
 	// impressora informa; 0/ausente = o driver não disse (impressora de rede
 	// nunca diz). É só sugestão: quem decide a largura é a pessoa, no teste.
 	LarguraDetectada int `json:"largura_detectada,omitempty"`
 }
 
-// LarguraSetor é a largura sugerida de um setor (só 58/80; fonte "driver").
+// LarguraSetor é a largura sugerida de um setor (48/58/80; fonte "driver").
 type LarguraSetor struct {
 	MM         int    `json:"mm"`
 	Fonte      string `json:"fonte"`

@@ -162,7 +162,14 @@ impressora, a API ficava com a saúde velha. Atualize o programa (versão nova
 recalcula e manda na hora; `saude: {}` quando não sobra impressora). Conferir:
 `GET /me/print-agents` → `agents[].saude` e `setores.frente.impressora`.
 
-## O painel nunca sugere a largura do papel (58/80)
+## O painel sugere 48 mm e o papel é 58
+
+Alguns drivers de 58 mm informam só a área de impressão (48 mm = 384 pontos):
+o programa (v2.2.2+) manda 48. O painel trata 48 e 58 como a mesma família
+(32 colunas) e não pede troca entre eles; escolha a que está na caixa da
+impressora e ajuste as colunas pela régua do teste.
+
+## O painel nunca sugere a largura do papel (48/58/80)
 
 Versão até v2.2.0 mandava a largura do driver só dentro de `saude`; a API lê
 `largura_detectada` no topo do status. Atualize o programa. Impressora de rede

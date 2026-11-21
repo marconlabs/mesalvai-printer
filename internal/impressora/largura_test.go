@@ -6,7 +6,7 @@ import (
 )
 
 func TestClassificarLargura(t *testing.T) {
-	casos := map[float64]int{57: 58, 58: 58, 48: 58, 62: 58, 72: 80, 79: 80, 80: 80, 82.5: 80, 210: 0, 100: 0, 30: 0}
+	casos := map[float64]int{57: 58, 58: 58, 48: 48, 44: 48, 52.5: 48, 53: 58, 62: 58, 72: 80, 79: 80, 80: 80, 82.5: 80, 210: 0, 100: 0, 30: 0}
 	for mm, want := range casos {
 		if got := ClassificarLargura(mm); got != want {
 			t.Errorf("%v mm: %d (queria %d)", mm, got, want)
@@ -24,6 +24,11 @@ func TestLarguraDoTexto(t *testing.T) {
 		"Roll 80":        80,
 		"POS-58":         58,
 		"XP-58 Series":   58,
+		"48x210mm":       48,
+		"POS-48":         48,
+		"Roll 48":        48,
+		"w136h1000":      48, // 136 pt = 48 mm
+		"Model 48":       0,  // "48" solto não é largura
 		"EPSON TM-T20II": 0,
 		"A4":             0,
 		"210x297mm":      0,
@@ -49,6 +54,9 @@ func TestLarguraDoDevMode(t *testing.T) {
 	}
 	if got := LarguraDoDevMode(devmode(dmPaperWidthCampo, 580)); got != 58 {
 		t.Errorf("58 mm: %d", got)
+	}
+	if got := LarguraDoDevMode(devmode(dmPaperWidthCampo, 480)); got != 48 {
+		t.Errorf("48 mm: %d", got)
 	}
 	// Driver que não preencheu o campo de largura: não chuta.
 	if got := LarguraDoDevMode(devmode(0x2, 800)); got != 0 {
