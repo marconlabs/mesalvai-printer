@@ -174,3 +174,7 @@ impressora e ajuste as colunas pela régua do teste.
 Versão até v2.2.0 mandava a largura do driver só dentro de `saude`; a API lê
 `largura_detectada` no topo do status. Atualize o programa. Impressora de rede
 continua sem sugestão (não tem driver).
+
+## Papel não saiu: "Papel não impresso" / saiu uma vez só
+- "Papel não impresso … esperou mais de 90 min": a impressora ou o computador ficou fora por mais de 90 min; reimprima pelo painel.
+- Papel reenviado pelo servidor e não saiu de novo: esperado, ele já tinha saído há menos de 30 min (log `papel repetido ignorado`). Ack atrasado aparece como `ack pendente` e depois `ack reenviado`.

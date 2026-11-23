@@ -232,3 +232,7 @@ Tag `v2.0.0` em `main` → workflow `release` monta
 painel baixa por `releases/latest/download/<arquivo>`, então não muda nada lá).
 A versão vem da tag (`-X main.versao=v2.0.0`). Mac exige cgo (systray): só
 compila no runner macOS.
+
+## Papel em dobro e papel velho (22/11/2026)
+- **Ack idempotente:** quando um papel sai, o programa grava o rastro (30 min) em `fila/impressos/` ANTES de avisar o servidor. Se a rede cair e o servidor reenviar o mesmo papel, ele é ignorado (não sai em dobro). O ack que não chegou é reenviado a cada passada da fila (a cada 15 s) até o servidor receber; rastro sem ack some após 24 h.
+- **Validade de 90 min:** papel que esperou mais que isso na fila (impressora fora, computador desligado) não sai mais; fecha como `falhou` ("expirado") e a bandeja avisa "Papel não impresso". O operador reimprime pelo painel se ainda quiser. Opção `Validade` do agente.

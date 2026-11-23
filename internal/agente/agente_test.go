@@ -414,3 +414,49 @@ func TestParseStreamIgnoraEventoDesconhecido(t *testing.T) {
 		t.Fatal("hello depois de evento desconhecido devia conectar")
 	}
 }
+
+// Reenvio do servidor (ack perdido): o papel não sai em dobro.
+func TestPapelRepetidoNaoImprimeEmDobro(t *testing.T) {
+	srv := novoServidor(t)
+	srv.pareado = true
+	imp := &impressoraFalsa{}
+	a, cfg, _ := montar(t, srv, imp)
+	_ = cfg.Update(func(c *config.Config) { c.Chave = "mpk_teste"; c.Frente = "EPSON" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.Run(ctx)
+	ate(t, func() bool { return a.Estado().Conectado }, "conectado")
+	srv.job("j1", "frente")
+	ate(t, func() bool { return srv.temAck("j1:impresso") }, "ack do j1")
+	srv.job("j1", "frente") // o servidor reenviou
+	time.Sleep(400 * time.Millisecond)
+	imp.mu.Lock()
+	n := len(imp.saidas)
+	imp.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("saiu %d vezes", n)
+	}
+}
+
+// Papel que esperou mais que a validade não sai; fecha como "falhou".
+func TestPapelVencidoNaoSai(t *testing.T) {
+	srv := novoServidor(t)
+	srv.pareado = true
+	imp := &impressoraFalsa{}
+	a, cfg, dir := montar(t, srv, imp)
+	_ = cfg.Update(func(c *config.Config) { c.Chave = "mpk_teste"; c.Frente = "EPSON" })
+	f, _ := fila.Abrir(filepath.Join(dir, "fila"))
+	_ = f.Por(fila.Item{ID: "velho", Target: "frente", Title: "Pedido #9", Copies: 1,
+		PayloadB64: base64.StdEncoding.EncodeToString([]byte("\x1b@VELHO\n")), ChegouEm: time.Now().Add(-2 * time.Hour)})
+	a2 := New(cfg, f, a.op)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a2.Run(ctx)
+	ate(t, func() bool { return srv.temAck("velho:falhou") }, "ack falhou do vencido")
+	imp.mu.Lock()
+	n := len(imp.saidas)
+	imp.mu.Unlock()
+	if n != 0 || a2.Estado().NaFila != 0 {
+		t.Fatalf("saidas %d fila %d", n, a2.Estado().NaFila)
+	}
+}

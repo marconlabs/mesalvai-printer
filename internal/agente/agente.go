@@ -8,6 +8,7 @@ package agente
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -94,6 +95,9 @@ type Opcoes struct {
 	Silencio time.Duration
 	// RetryFila: intervalo de tentar de novo o que ficou na fila.
 	RetryFila time.Duration
+	// Validade: papel esperando há mais que isso não sai mais ("Não impresso");
+	// comanda de ontem na cozinha atrapalha mais do que ajuda. Padrão 90 min.
+	Validade time.Duration
 	// Avisar: balão da bandeja (impressora caiu, voltou, desvinculado).
 	Avisar func(titulo, texto string)
 	Log    *slog.Logger
@@ -158,6 +162,9 @@ func New(cfg *config.Store, f *fila.Fila, op Opcoes) *Agente {
 	}
 	if op.RetryFila == 0 {
 		op.RetryFila = 15 * time.Second
+	}
+	if op.Validade == 0 {
+		op.Validade = 90 * time.Minute
 	}
 	if op.Log == nil {
 		op.Log = slog.Default()
@@ -400,6 +407,16 @@ func (a *Agente) receber(j api.Job) {
 	if a.fila.Tem(j.ID) {
 		return
 	}
+	// Já saiu há pouco e o ack se perdeu: o servidor reenviou. Não imprime de
+	// novo (papel em dobro na cozinha); só tenta fechar o ack outra vez.
+	if a.fila.FoiImpresso(j.ID) {
+		a.op.Log.Info("papel repetido ignorado", "id", j.ID)
+		select {
+		case a.acorda <- struct{}{}:
+		default:
+		}
+		return
+	}
 	if err := a.fila.Por(fila.Item{ID: j.ID, Target: j.Target, Title: j.Title, Copies: j.Copies, PayloadB64: j.PayloadB64,
 		SectorName: j.SectorName, Papel: j.Papel, Origem: j.Origem, Reserva: j.Reserva}); err != nil {
 		a.op.Log.Error("fila", "erro", err)
@@ -417,6 +434,7 @@ func (a *Agente) receber(j api.Job) {
 
 func (a *Agente) laçoDaFila(ctx context.Context) {
 	for {
+		a.reenviarAcks(ctx)
 		a.drenar(ctx)
 		select {
 		case <-ctx.Done():
@@ -490,6 +508,16 @@ func (a *Agente) drenar(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// Venceu: não sai mais. Fecha com "falhou" para o servidor/painel
+		// mostrarem "Não impresso" e o operador reimprimir se ainda quiser.
+		if !it.ChegouEm.IsZero() && a.agora().Sub(it.ChegouEm) > a.op.Validade {
+			_ = a.fila.Tirar(it.ID)
+			a.op.Log.Warn("papel vencido", "id", it.ID, "titulo", it.Title, "espera", a.agora().Sub(it.ChegouEm).Round(time.Minute))
+			_ = cl.Ack(ctx, it.ID, "falhou", fmt.Sprintf("expirado: esperou mais de %d min", int(a.op.Validade.Minutes())))
+			a.op.Avisar("Papel não impresso", fmt.Sprintf("%s esperou mais de %d min e foi descartado. Reimprima pelo painel se precisar.", it.Title, int(a.op.Validade.Minutes())))
+			a.mudar(func(*Estado) {})
+			continue
+		}
 		principal, reserva, cabecalho := destino(c, it)
 		if travada[principal] {
 			continue
@@ -557,8 +585,14 @@ func (a *Agente) drenar(ctx context.Context) {
 	}
 }
 
-// saiu tira o papel da fila e dá o ack.
+// saiu tira o papel da fila e dá o ack. O rastro "já saiu" é gravado ANTES do
+// ack: se a rede cair, o ack fica pendente (reenviado pelo laço da fila) e um
+// reenvio do servidor não imprime o papel de novo.
 func (a *Agente) saiu(ctx context.Context, cl *api.Client, it fila.Item, ack api.AckInfo) {
+	corpo, _ := json.Marshal(ack)
+	if err := a.fila.MarcarImpresso(it.ID, corpo); err != nil {
+		a.op.Log.Warn("rastro do impresso", "id", it.ID, "erro", err)
+	}
 	_ = a.fila.Tirar(it.ID)
 	a.op.Log.Info("impresso", "id", it.ID, "impressora", ack.Printer, "via", ack.Via, "setor", it.Target, "titulo", it.Title)
 	a.mudar(func(e *Estado) {
@@ -568,10 +602,36 @@ func (a *Agente) saiu(ctx context.Context, cl *api.Client, it fila.Item, ack api
 		}
 	})
 	if err := cl.AckCom(ctx, it.ID, ack); err != nil {
-		a.op.Log.Warn("ack", "id", it.ID, "erro", err)
+		a.op.Log.Warn("ack pendente", "id", it.ID, "erro", err)
+	} else {
+		_ = a.fila.AckFeito(it.ID)
 	}
 	if it.Tentativas > 0 && ack.Via == "principal" {
 		a.op.Avisar("Impressora voltou", it.Title+" saiu.")
+	}
+}
+
+// reenviarAcks tenta de novo os acks que não chegaram ao servidor.
+func (a *Agente) reenviarAcks(ctx context.Context) {
+	pend := a.fila.AcksPendentes()
+	if len(pend) == 0 {
+		return
+	}
+	cl := a.client()
+	for _, r := range pend {
+		if ctx.Err() != nil {
+			return
+		}
+		var info api.AckInfo
+		if json.Unmarshal(r.Ack, &info) != nil {
+			_ = a.fila.AckFeito(r.ID)
+			continue
+		}
+		if err := cl.AckCom(ctx, r.ID, info); err != nil {
+			return // sem rede: o resto espera a próxima passada
+		}
+		_ = a.fila.AckFeito(r.ID)
+		a.op.Log.Info("ack reenviado", "id", r.ID)
 	}
 }
 
